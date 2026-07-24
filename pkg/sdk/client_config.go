@@ -169,6 +169,13 @@ type ClientConfig struct {
 	PlanStore      PlanStore      `json:"-"`
 	LongTermMemory LongTermMemory `json:"-"`
 
+	// UserID identifies the caller for PlanStore.CreateOrUpdate (submit_plan)
+	// - a host embedding this SDK for more than one user must set this per
+	// request/session so plan documents get persisted against the actual
+	// caller, not left unattributed. Never sent anywhere itself; only
+	// threaded through to PlanStore.
+	UserID string `json:"-"`
+
 	// Document conversion
 	DoclingURL string `json:"docling_url,omitempty"`
 
