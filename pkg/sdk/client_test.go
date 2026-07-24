@@ -63,6 +63,73 @@ func TestNewClientPropagatesPromptFnToAskUserTool(t *testing.T) {
 	}
 }
 
+// fakePlanStore records the arguments its one call received - used to prove
+// ClientConfig.UserID actually reaches PlanStore.CreateOrUpdate, instead of
+// silently staying "" (see TestNewClientPropagatesUserIDToSubmitPlanTool's
+// doc comment for what broke without it).
+type fakePlanStore struct {
+	gotUserID    string
+	gotSessionID string
+}
+
+func (f *fakePlanStore) CreateOrUpdate(_ context.Context, planID, sessionID, userID, _, _, _ string) (string, int, error) {
+	f.gotUserID = userID
+	f.gotSessionID = sessionID
+	if planID == "" {
+		planID = "plan-test-id"
+	}
+	return planID, 1, nil
+}
+
+func (f *fakePlanStore) SetStatus(context.Context, string, string) error { return nil }
+
+// TestNewClientPropagatesUserIDToSubmitPlanTool is a regression test: a host
+// with a real PlanStore (e.g. seshat-backend) persists every plan document
+// submit_plan creates - without ClientConfig.UserID being threaded through
+// to PlanStore.CreateOrUpdate, every one of those was stored with an empty
+// UserID, which then failed that host's own ownership check ("doc.UserID !=
+// principal.User.ID") on every later read or patch, for every user,
+// unconditionally.
+func TestNewClientPropagatesUserIDToSubmitPlanTool(t *testing.T) {
+	store := &fakePlanStore{}
+	client, err := NewClient(&ClientConfig{
+		PersistSessions: false,
+		PlanStore:       store,
+		UserID:          "user-42",
+	})
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+
+	registeredTool, ok := client.registry.Get("submit_plan")
+	if !ok {
+		t.Fatal("expected submit_plan tool to be registered")
+	}
+
+	toolCtx := tool.NewToolUseContext(types.SessionID("session-abc"), "", "", types.PermissionModeOnRequest)
+	toolCtx.ExecutionMode = "plan"
+	result, callErr := registeredTool.Call(context.Background(), tool.CallInput{
+		SessionID:   types.SessionID("session-abc"),
+		ToolContext: &toolCtx,
+		Parsed: map[string]any{
+			"slug":    "test-plan",
+			"content": "1. Do the thing",
+		},
+	}, nil)
+	if callErr != nil {
+		t.Fatalf("tool call failed: %v", callErr)
+	}
+	if result.IsError() {
+		t.Fatalf("expected submit_plan success, got %#v", result)
+	}
+	if store.gotUserID != "user-42" {
+		t.Fatalf("expected PlanStore.CreateOrUpdate to receive UserID %q, got %q", "user-42", store.gotUserID)
+	}
+	if store.gotSessionID != "session-abc" {
+		t.Fatalf("expected PlanStore.CreateOrUpdate to receive SessionID %q, got %q", "session-abc", store.gotSessionID)
+	}
+}
+
 func TestCreateSessionUsesConfiguredWorkingDirAsRootPath(t *testing.T) {
 	workingDir := t.TempDir()
 
