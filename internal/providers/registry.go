@@ -76,13 +76,19 @@ func AllProvidersInfo() map[types.APIProvider]ProviderInfo {
 			AuthTypes:    []string{"oauth"},
 			SupportsCVMM: false,
 			SupportsPC:   false,
-			// gpt-5.3-codex/gpt-5.2-codex removed: confirmed broken by a real
-			// ChatGPT-account session — the API rejects both with
-			// "The 'gpt-5.X-codex' model is not supported when using Codex
-			// with a ChatGPT account." gpt-5.4-mini and gpt-5.4-codex are the
-			// two confirmed working today.
+			// gpt-5.3-codex/gpt-5.2-codex/gpt-5.4-codex all confirmed broken by
+			// a real ChatGPT-account session ("The 'gpt-5.X-codex' model is
+			// not supported when using Codex with a ChatGPT account"). The
+			// three below are instead confirmed straight from that account's
+			// own working VS Code Codex picker: gpt-5.6-sol (their default)
+			// and gpt-5.5 are both confirmed working; gpt-5.4-mini was never
+			// reported broken and is also present in that same picker.
+			// Present in the picker but not yet confirmed working here:
+			// gpt-5.6-terra, gpt-5.6-luna, gpt-5.4 (no "-mini").
 			Models: []ModelInfo{
-				{Identifier: "gpt-5.4-codex", ContextWindow: 200000, MaxOutput: 100000, DefaultTemperature: 1.0, Description: "GPT-5.4-Codex — Flagship Codex model. Best agentic coding via ChatGPT Pro subscription.",
+				{Identifier: "gpt-5.6-sol", ContextWindow: 200000, MaxOutput: 100000, DefaultTemperature: 1.0, Description: "GPT-5.6-Sol — Flagship Codex model via ChatGPT Pro subscription.",
+					Capabilities: model.Capabilities{FunctionCalling: true, Streaming: true}},
+				{Identifier: "gpt-5.5", ContextWindow: 200000, MaxOutput: 100000, DefaultTemperature: 1.0, Description: "GPT-5.5 — Codex model available via ChatGPT Pro subscription.",
 					Capabilities: model.Capabilities{FunctionCalling: true, Streaming: true}},
 				{Identifier: "gpt-5.4-mini", ContextWindow: 272000, MaxOutput: 16384, DefaultTemperature: 1.0, Description: "GPT-5.4-Mini — Fast, cost-efficient model via Codex (ChatGPT Pro subscription).",
 					Capabilities: model.Capabilities{Vision: true, FunctionCalling: true, Streaming: true}},
