@@ -164,7 +164,7 @@ func (t *Tool) Definition() tool.Definition {
 				},
 				"description": map[string]any{
 					"type":        "string",
-					"description": "Short description of what the command does",
+					"description": "Clear, concise description of what this command does in 5-10 words, active voice, present tense (e.g. \"Lists files in the current directory\", \"Installs package dependencies\", \"Runs the test suite\"). Shown to the user in the collapsed tool-call line in place of the raw command, so avoid vague wording like \"Runs a command\".",
 				},
 				"run_in_background": map[string]any{
 					"type":        "boolean",
@@ -179,7 +179,7 @@ func (t *Tool) Definition() tool.Definition {
 					"description": "Maximum bytes to capture from output (default: 102400, max: 10485760)",
 				},
 			},
-			"required": []string{"command"},
+			"required": []string{"command", "description"},
 		}),
 		IsReadOnly:         false,
 		IsConcurrencySafe:  false,
@@ -993,6 +993,7 @@ Prefer dedicated tools over Bash whenever a dedicated tool exists — they are s
 - MCP tools: if an MCP-provided tool covers the same operation, prefer the MCP tool over a Bash equivalent
 
 Instructions:
+- description is required: a clear, 5-10 word summary in active, present tense (e.g. "Lists files in current directory", "Runs the test suite"). It's shown to the user in place of the raw command whenever the tool call is collapsed, so avoid vague filler like "Runs a command".
 - If your command will create new directories or files, first use this tool to run ls to verify the parent directory exists and is the correct location.
 - Always quote file paths that contain spaces with double quotes in your command.
 - Try to maintain your current working directory throughout the session by using absolute paths and avoiding cd. You may use cd if the user explicitly requests it.
