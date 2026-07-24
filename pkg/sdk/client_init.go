@@ -123,6 +123,7 @@ func initBuiltinRegistry(config *ClientConfig, browserManager browsercore.Manage
 		ArtifactStore:              artifactStore,
 		RAGService:                 config.RAGService,
 		PlanStore:                  config.PlanStore,
+		UserID:                     config.UserID,
 		LongTermMemory:             config.LongTermMemory,
 		DoclingURL:                 config.DoclingURL,
 		AutomationServiceURL:       config.AutomationServiceURL,
