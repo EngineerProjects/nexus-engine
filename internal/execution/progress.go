@@ -22,6 +22,17 @@ func progressForStage(toolUse types.ToolUseContent, stage string, percent float6
 	}
 }
 
+// completeProgress builds the terminal progress event for a tool call that
+// actually ran to completion (as opposed to being denied permission, which
+// goes through failedProgress via failedOutcome instead). "Ran to
+// completion" still covers a normal, handled tool error (file not found,
+// ripgrep missing, bad input, ...) - result.IsError() distinguishes that
+// from a real success, and the stage/message below reflect it. Getting this
+// wrong used to always report ToolProgressStageCompleted regardless, which
+// is what the frontend's live tool_progress handling derives its
+// success/failure icon from - every non-permission tool error showed a
+// green checkmark while the expanded body, built from this same event's
+// metadata, correctly showed the error text right below it.
 func completeProgress(toolUse types.ToolUseContent, result tool.CallResult, extraMetadata map[string]any) types.ToolProgress {
 	metadata := progressMetadata(toolUse)
 	for k, v := range extraMetadata {
@@ -33,11 +44,18 @@ func completeProgress(toolUse types.ToolUseContent, result tool.CallResult, extr
 		}
 	}
 
+	stage := types.ToolProgressStageCompleted
+	message := fmt.Sprintf("Tool %s completed", toolUse.Name)
+	if result.IsError() {
+		stage = types.ToolProgressStageFailed
+		message = fmt.Sprintf("Tool %s failed", toolUse.Name)
+	}
+
 	return types.ToolProgress{
 		ToolName:        toolUse.Name,
 		ToolUseID:       toolUse.ID,
-		Stage:           types.ToolProgressStageCompleted,
-		Message:         fmt.Sprintf("Tool %s completed", toolUse.Name),
+		Stage:           stage,
+		Message:         message,
 		PercentComplete: 100,
 		Metadata:        metadata,
 	}
