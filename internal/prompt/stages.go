@@ -50,7 +50,9 @@ const stagePlanOverlay = `# Stage: plan mode
 Tool execution is suspended. Describe the plan of action.
 - List the tools you would use and the order of operations.
 - Present the plan as a numbered list of concrete, verifiable steps.
-- Do not execute tools or make changes.`
+- Do not execute implementation tools or make changes.
+- You may still use plan-control or clarification tools such as ` + "`ask_user_question`" + `,
+  ` + "`submit_plan`" + `, and ` + "`exit_plan_mode`" + ` when needed.`
 
 var stageOverlayDefaults = map[ExecutionStage]string{
 	StageToolCall:     stageToolCallOverlay,

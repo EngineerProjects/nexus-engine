@@ -129,7 +129,7 @@ var runtimeContextSection = Section{
 var runtimeGuidanceSection = Section{
 	Type:      SectionTypeDynamic,
 	Name:      "runtime_guidance",
-	Content:   "# Runtime guidance\n\n- The stable system prompt prefix ends before {{prompt_cache_boundary}} and must remain deterministic across turns.\n- Treat the listed tool surface as canonical for this turn.\n- Use runtime context fields as live session data, not durable policy.",
+	Content:   "# Runtime guidance\n\n- The stable system prompt prefix ends before {{prompt_cache_boundary}} and must remain deterministic across turns.\n- Treat the listed tool surface as canonical for this turn.\n- If a needed capability is not listed, use `tool_search` to discover deferred tools before concluding it is unavailable.\n- Use runtime context fields as live session data, not durable policy.",
 	Priority:  780,
 	Cacheable: false,
 	Enabled:   true,
@@ -433,7 +433,7 @@ func (b *Builder) FetchSystemPromptParts(
 	// ========================================================================
 	// CACHE INTEGRATION: Try cache for stable sections first
 	// ========================================================================
-	stableSectionNames := []string{"identity", "runtime_contract", "working_rules", "factual_discipline", "tool_use", "workflow", "modes", "orchestration", "workflow_examples", "verification_examples", "output_discipline"}
+	stableSectionNames := []string{"identity", "runtime_contract", "working_rules", "factual_discipline", "tool_use", "tool_priority", "workflow", "modes", "orchestration", "browser_use", "workflow_examples", "verification_examples", "output_discipline"}
 
 	if b.config.EnableCaching {
 		// Try to get from cache
