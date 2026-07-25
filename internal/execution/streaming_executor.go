@@ -157,6 +157,7 @@ func (s *StreamingExecutor) executeToolAsync(toolUse types.ToolUseContent, index
 			outcome.Error = result.Errors[0].Error
 			outcome.ErrorStage = result.Errors[0].Stage
 		}
+		outcome.FinalToolContext = result.FinalToolContext
 	} else {
 		err = fmt.Errorf("streaming executor received no tool result for %s", toolUse.Name)
 		outcome.Result = tool.NewErrorResult(err)
@@ -195,14 +196,15 @@ func (s *StreamingExecutor) GetAllCompletedResults() []StreamingExecutionResult 
 	results := make([]StreamingExecutionResult, 0, len(outcomes))
 	for _, outcome := range outcomes {
 		results = append(results, StreamingExecutionResult{
-			ToolUse:    outcome.ToolUse,
-			Index:      outcome.Index,
-			Result:     outcome.Result,
-			Messages:   append([]types.Message(nil), outcome.Messages...),
-			Error:      outcome.Error,
-			ErrorStage: outcome.ErrorStage,
-			Progress:   append([]types.ToolProgress(nil), outcome.Progress...),
-			Trace:      cloneTrace(outcome.Trace),
+			ToolUse:          outcome.ToolUse,
+			Index:            outcome.Index,
+			Result:           outcome.Result,
+			Messages:         append([]types.Message(nil), outcome.Messages...),
+			Error:            outcome.Error,
+			ErrorStage:       outcome.ErrorStage,
+			Progress:         append([]types.ToolProgress(nil), outcome.Progress...),
+			Trace:            cloneTrace(outcome.Trace),
+			FinalToolContext: outcome.FinalToolContext,
 		})
 	}
 	return results

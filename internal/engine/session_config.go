@@ -197,7 +197,7 @@ func (s *Session) ClearPlanMode() {
 	}
 	ctx.Mode = restoreMode
 	ctx.PrePlanMode = ""
-	ctx.ExecutionMode = ""
+	ctx.ExecutionMode = string(modes.ExecutionModeExecute)
 	s.state.SetPermissionContext(ctx)
 }
 
