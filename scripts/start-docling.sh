@@ -27,16 +27,30 @@ _default_runtime_root() {
 
 SESHAT_RUNTIME_ROOT="${SESHAT_RUNTIME_ROOT:-$(_default_runtime_root)}"
 VENV_DIR="$SESHAT_RUNTIME_ROOT/.venv"
-DOCLING_BIN="$VENV_DIR/bin/docling-serve"
+
+# `uv venv` produces a Windows-layout venv (Scripts\docling-serve.exe) when
+# uv.exe is the native Windows binary - true even under Git Bash, where
+# `uname`-based OS checks don't reliably catch it. Probe the venv's own
+# layout instead of guessing from the OS. Called both before and after the
+# install step below, since the venv may not exist yet on the first probe.
+resolve_docling_bin() {
+    if [ -f "$VENV_DIR/Scripts/docling-serve.exe" ]; then
+        DOCLING_BIN="$VENV_DIR/Scripts/docling-serve.exe"
+    else
+        DOCLING_BIN="$VENV_DIR/bin/docling-serve"
+    fi
+}
+resolve_docling_bin
 
 PORT="${DOCLING_PORT:-5001}"
 HOST="${DOCLING_HOST:-127.0.0.1}"
 WORKERS="${DOCLING_WORKERS:-1}"
 
 # ── Ensure venv + docling-serve are installed ─────────────────────────────────
-if [ ! -x "$DOCLING_BIN" ]; then
+if [ ! -f "$DOCLING_BIN" ]; then
     echo "[docling] docling-serve not found. Running: ./scripts/install-python-env.sh"
     "$(dirname "$0")/install-python-env.sh"
+    resolve_docling_bin
 fi
 
 # ── Launch ────────────────────────────────────────────────────────────────────
