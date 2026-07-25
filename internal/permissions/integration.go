@@ -12,6 +12,7 @@ import (
 
 	automode "github.com/KPO-Tech/seshat/internal/permissions/auto"
 	"github.com/KPO-Tech/seshat/internal/providers"
+	"github.com/KPO-Tech/seshat/internal/sandbox"
 	tool "github.com/KPO-Tech/seshat/internal/tools/registry"
 	"github.com/KPO-Tech/seshat/internal/types"
 	"github.com/KPO-Tech/seshat/internal/utils"
@@ -29,6 +30,20 @@ type Integrator struct {
 
 	mu           sync.RWMutex
 	sessionTools map[types.SessionID]map[string]bool
+
+	// turnGrants holds request_permissions grants made with scope="turn" -
+	// in-memory only, never written to permissions.json. A grant only
+	// matches lookups carrying the same TurnID, so it naturally stops
+	// applying once the turn it was made for ends, without needing an
+	// explicit expiry sweep.
+	turnGrants map[turnScopeKey]map[string]bool
+}
+
+// turnScopeKey identifies one turn within one session, for turn-scoped
+// (as opposed to session-scoped/disk-persisted) permission grants.
+type turnScopeKey struct {
+	SessionID types.SessionID
+	TurnID    types.TurnID
 }
 
 // NewIntegrator creates a new permission integrator.
@@ -36,6 +51,7 @@ func NewIntegrator(engine *Engine) *Integrator {
 	return &Integrator{
 		engine:       engine,
 		sessionTools: make(map[types.SessionID]map[string]bool),
+		turnGrants:   make(map[turnScopeKey]map[string]bool),
 	}
 }
 
@@ -73,6 +89,18 @@ func (i *Integrator) ResolverWithContext(
 		if requestSessionID == "" {
 			requestSessionID = sessionID
 		}
+		requestTurnID := request.TurnID
+		if requestTurnID == "" {
+			requestTurnID = turnID
+		}
+
+		// Whatever this specific request is asking to do to a path (write,
+		// create, read, ...) - derived from the sandbox.PermissionRequest the
+		// tool itself built (see sandbox.ResolveToolPermission), not from
+		// toolName, so it matches regardless of which tool is asking. Empty
+		// for tools that don't go through the sandbox bridge or declare no
+		// paths (nothing to match a request_permissions grant against).
+		grantKeys := filesystemGrantLookupKeys(request.Metadata)
 
 		if requestSessionID != "" {
 			// A request_permissions call with scope=session also gets a second,
@@ -90,7 +118,13 @@ func (i *Integrator) ResolverWithContext(
 			hasSession := i.sessionTools != nil && i.sessionTools[requestSessionID] != nil
 			var allowed bool
 			if hasSession {
-				allowed = anyKeyAllowed(i.sessionTools[requestSessionID], lookupKeys)
+				allowed = anyKeyAllowed(i.sessionTools[requestSessionID], lookupKeys) ||
+					anyKeyAllowed(i.sessionTools[requestSessionID], grantKeys)
+			}
+			if !allowed {
+				if turnMap := i.turnGrants[turnScopeKey{SessionID: requestSessionID, TurnID: requestTurnID}]; turnMap != nil {
+					allowed = anyKeyAllowed(turnMap, grantKeys)
+				}
 			}
 			i.mu.RUnlock()
 
@@ -110,7 +144,13 @@ func (i *Integrator) ResolverWithContext(
 					}
 					i.sessionTools[requestSessionID] = loadedMap
 				}
-				allowed = anyKeyAllowed(i.sessionTools[requestSessionID], lookupKeys)
+				allowed = anyKeyAllowed(i.sessionTools[requestSessionID], lookupKeys) ||
+					anyKeyAllowed(i.sessionTools[requestSessionID], grantKeys)
+				if !allowed {
+					if turnMap := i.turnGrants[turnScopeKey{SessionID: requestSessionID, TurnID: requestTurnID}]; turnMap != nil {
+						allowed = anyKeyAllowed(turnMap, grantKeys)
+					}
+				}
 				i.mu.Unlock()
 			}
 
@@ -121,10 +161,6 @@ func (i *Integrator) ResolverWithContext(
 					Reason: "auto-approved for session",
 				})
 			}
-		}
-		requestTurnID := request.TurnID
-		if requestTurnID == "" {
-			requestTurnID = turnID
 		}
 
 		metadata := clonePermissionMetadata(request.Metadata)
@@ -258,10 +294,29 @@ func (i *Integrator) ResolverWithContext(
 			// its content-scoped key (not the plain tool name) regardless of
 			// whether the UI has an "always" concept, since the scope was
 			// declared by the model's own input, not a special user response.
-			if scope, _ := metadata["grant_scope"].(string); scope == "session" && requestSessionID != "" {
+			grantScope, _ := metadata["grant_scope"].(string)
+			if grantScope == "session" && requestSessionID != "" {
 				if key := requestPermissionsSessionKey(toolName, toolInput); key != "" {
 					i.persistSessionApproval(requestSessionID, key)
 					reason = "approved for session (request_permissions scope=session)"
+				}
+			}
+			// The actual point of request_permissions: register the escalation
+			// itself so the operation it was requested FOR (write_file,
+			// edit_file, ...) finds it too, not just a repeat request_permissions
+			// call asking for the same thing (that's what the block above
+			// covers). scope="session" survives on disk across turns/restarts;
+			// the default scope="turn" stays in memory and only matches
+			// lookups within this same turn.
+			if toolName == requestPermissionsToolName && requestSessionID != "" {
+				if grantKeys := requestedFilesystemGrantKeys(toolInput); len(grantKeys) > 0 {
+					if grantScope == "session" {
+						for _, key := range grantKeys {
+							i.persistSessionApproval(requestSessionID, key)
+						}
+					} else {
+						i.grantForTurn(requestSessionID, requestTurnID, grantKeys)
+					}
 				}
 			}
 			return types.AllowWithInputAndDecisionReason(reason, result.UpdatedInput, &types.PermissionDecisionReason{
@@ -393,6 +448,110 @@ func anyKeyAllowed(grants map[string]bool, keys []string) bool {
 		}
 	}
 	return false
+}
+
+// requestPermissionsToolName is request_permissions.ToolName, duplicated
+// here (a plain string literal, not an import) to avoid the permission
+// engine depending on one specific tool's package.
+const requestPermissionsToolName = "request_permissions"
+
+// grantForTurn records grantKeys as granted for (sessionID, turnID) only -
+// in memory, never written to disk. Used for request_permissions calls with
+// the default scope="turn": the grant must stop applying once this turn
+// ends, which persistSessionApproval's disk-backed, indefinite grant can't
+// express.
+func (i *Integrator) grantForTurn(sessionID types.SessionID, turnID types.TurnID, grantKeys []string) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	key := turnScopeKey{SessionID: sessionID, TurnID: turnID}
+	if i.turnGrants == nil {
+		i.turnGrants = make(map[turnScopeKey]map[string]bool)
+	}
+	if i.turnGrants[key] == nil {
+		i.turnGrants[key] = make(map[string]bool)
+	}
+	for _, gk := range grantKeys {
+		i.turnGrants[key][gk] = true
+	}
+}
+
+// requestedFilesystemGrantKeys reads a request_permissions call's own raw
+// input (permissions.filesystem.{paths,access}) and returns one grant key
+// per (access kind, path) pair granted - e.g. a request for
+// access=[write,create] on paths=[/a, /b] yields 4 keys. These are the same
+// keys filesystemGrantLookupKeys derives (by ancestor walk) from a *later*
+// tool's own sandbox.PermissionRequest, so a write_file call under one of
+// these exact paths matches directly.
+func requestedFilesystemGrantKeys(input map[string]any) []string {
+	perms, ok := input["permissions"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	fs, ok := perms["filesystem"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	paths := stringSlice(fs["paths"])
+	access := stringSlice(fs["access"])
+	if len(paths) == 0 || len(access) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(paths)*len(access))
+	for _, p := range paths {
+		cleaned := filepath.Clean(p)
+		for _, a := range access {
+			keys = append(keys, fmt.Sprintf("grant::%s::%s", a, cleaned))
+		}
+	}
+	return keys
+}
+
+// filesystemGrantLookupKeys derives the grant keys that would cover this
+// specific permission request, from the sandbox.PermissionRequest the
+// requesting tool built (carried verbatim in metadata by
+// sandbox.ResolveToolPermission/PermissionRequest.MetadataMap - see
+// sandbox.MetadataRequestKey). For each declared path it includes the exact
+// path plus every ancestor directory, since a request_permissions grant on
+// a directory covers files created/read underneath it, not just that exact
+// path. Returns nil for requests that didn't go through the sandbox bridge
+// or declare no paths (nothing a filesystem grant could cover).
+func filesystemGrantLookupKeys(metadata map[string]any) []string {
+	if metadata == nil {
+		return nil
+	}
+	req, ok := metadata[sandbox.MetadataRequestKey].(sandbox.PermissionRequest)
+	if !ok || req.Access == "" || len(req.Paths) == 0 {
+		return nil
+	}
+	var keys []string
+	for _, p := range req.Paths {
+		clean := filepath.Clean(p)
+		for {
+			keys = append(keys, fmt.Sprintf("grant::%s::%s", req.Access, clean))
+			parent := filepath.Dir(clean)
+			if parent == clean {
+				break
+			}
+			clean = parent
+		}
+	}
+	return keys
+}
+
+// stringSlice extracts the string elements of a []any (as JSON-decoded tool
+// input always is), skipping anything else and trimming/dropping blanks.
+func stringSlice(raw any) []string {
+	items, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+			out = append(out, strings.TrimSpace(s))
+		}
+	}
+	return out
 }
 
 // requestPermissionsSessionKey builds a stable signature for a
