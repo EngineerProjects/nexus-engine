@@ -3,6 +3,7 @@ package sandbox
 import (
 	"fmt"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -53,6 +54,7 @@ func (p *FilesystemPolicy) EvaluatePath(ctx Context, path string, access AccessK
 		p = NewDefaultFilesystemPolicy()
 	}
 
+	rawProtectedPrefix := ""
 	resolvedPath, err := ctx.ResolvePath(path)
 	if err != nil {
 		return PathDecision{}, err
@@ -60,11 +62,16 @@ func (p *FilesystemPolicy) EvaluatePath(ctx Context, path string, access AccessK
 
 	switch access {
 	case AccessRead:
+		rawProtectedPrefix = matchingSlashPrefix(path, p.readDeniedPrefixes)
+		if rawProtectedPrefix == "" {
+			rawProtectedPrefix = matchingPrefix(resolvedPath, p.readDeniedPrefixes)
+		}
+		if rawProtectedPrefix != "" {
+			prefix := rawProtectedPrefix
+			return denyPath(resolvedPath, fmt.Sprintf("read access denied for protected path prefix %q", prefix)), nil
+		}
 		if err := requireExistingPath(resolvedPath); err != nil {
 			return PathDecision{}, err
-		}
-		if prefix := matchingPrefix(resolvedPath, p.readDeniedPrefixes); prefix != "" {
-			return denyPath(resolvedPath, fmt.Sprintf("read access denied for protected path prefix %q", prefix)), nil
 		}
 	case AccessSearch:
 		info, err := os.Stat(resolvedPath)
@@ -74,11 +81,19 @@ func (p *FilesystemPolicy) EvaluatePath(ctx Context, path string, access AccessK
 		if !info.IsDir() {
 			return PathDecision{}, fmt.Errorf("not a directory: %s", resolvedPath)
 		}
-		if prefix := matchingPrefix(resolvedPath, p.readDeniedPrefixes); prefix != "" {
+		rawProtectedPrefix = matchingSlashPrefix(path, p.readDeniedPrefixes)
+		if rawProtectedPrefix == "" {
+			rawProtectedPrefix = matchingPrefix(resolvedPath, p.readDeniedPrefixes)
+		}
+		if prefix := rawProtectedPrefix; prefix != "" {
 			return denyPath(resolvedPath, fmt.Sprintf("search access denied for protected path prefix %q", prefix)), nil
 		}
 	case AccessWrite, AccessCreate, AccessDelete:
-		if prefix := matchingPrefix(resolvedPath, p.writeDeniedPrefixes); prefix != "" {
+		rawProtectedPrefix = matchingSlashPrefix(path, p.writeDeniedPrefixes)
+		if rawProtectedPrefix == "" {
+			rawProtectedPrefix = matchingPrefix(resolvedPath, p.writeDeniedPrefixes)
+		}
+		if prefix := rawProtectedPrefix; prefix != "" {
 			return denyPath(resolvedPath, fmt.Sprintf("write access denied for protected path prefix %q", prefix)), nil
 		}
 	default:
@@ -114,6 +129,17 @@ func denyPath(path string, reason string) PathDecision {
 func matchingPrefix(path string, prefixes []string) string {
 	for _, prefix := range prefixes {
 		if hasPathPrefix(path, prefix) {
+			return prefix
+		}
+	}
+	return ""
+}
+
+func matchingSlashPrefix(path string, prefixes []string) string {
+	cleanPath := pathpkg.Clean(strings.ReplaceAll(path, "\\", "/"))
+	for _, prefix := range prefixes {
+		cleanPrefix := pathpkg.Clean(strings.ReplaceAll(prefix, "\\", "/"))
+		if cleanPath == cleanPrefix || strings.HasPrefix(cleanPath, cleanPrefix+"/") {
 			return prefix
 		}
 	}

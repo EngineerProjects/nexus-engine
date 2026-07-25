@@ -117,6 +117,9 @@ func (e *Tool) Call(
 	if !ok || filePath == "" {
 		return tool.NewErrorResult(fmt.Errorf("file_path is required and must be a string")), nil
 	}
+	if err := shared.ValidateFilePath(filePath, "editing"); err != nil {
+		return tool.NewErrorResult(err), nil
+	}
 
 	oldString, ok := input.Parsed["old_string"].(string)
 	if !ok {
@@ -385,6 +388,9 @@ func (e *Tool) CheckPermissions(ctx context.Context, input map[string]any, toolC
 		return types.Deny(err.Error())
 	}
 	if err := shared.ValidateFilePath(filePath, "editing"); err != nil {
+		return types.Deny(err.Error())
+	}
+	if err := shared.ValidateFilePath(absolutePath, "editing"); err != nil {
 		return types.Deny(err.Error())
 	}
 	if err := shared.ValidateUNCPathSecurity(absolutePath); err != nil {

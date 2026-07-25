@@ -160,7 +160,7 @@ func (t *ExitPlanModeTool) Call(
 		message = fmt.Sprintf("Plan approved.\n\n## Approved Plan:\n%s", executionContent)
 	} else {
 		message = fmt.Sprintf(`User has approved your plan. You can now start coding.
-Start by updating your todo list with todo_write if applicable.
+Start by creating/updating tracked tasks with task_create and task_update if applicable.
 
 Your plan has been saved to: %s
 
@@ -172,7 +172,7 @@ Your plan has been saved to: %s
 	result.ContextModifier = func(ctx tool.ToolUseContext) tool.ToolUseContext {
 		ctx.PermissionMode = restoreMode
 		ctx.PrePlanMode = ""
-		ctx.ExecutionMode = ""
+		ctx.ExecutionMode = string(modes.ExecutionModeExecute)
 		return ctx
 	}
 	return result, nil

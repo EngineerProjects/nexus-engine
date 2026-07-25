@@ -107,28 +107,30 @@ type executionBatch struct {
 }
 
 type toolExecutionOutcome struct {
-	ToolUse    types.ToolUseContent
-	Index      int
-	Result     tool.CallResult
-	Messages   []types.Message
-	Error      error
-	ErrorStage ErrorStage
-	Progress   []types.ToolProgress
-	Trace      ToolExecutionTrace
+	ToolUse          types.ToolUseContent
+	Index            int
+	Result           tool.CallResult
+	Messages         []types.Message
+	Error            error
+	ErrorStage       ErrorStage
+	Progress         []types.ToolProgress
+	Trace            ToolExecutionTrace
+	FinalToolContext tool.ToolUseContext
 }
 
 // StreamingExecutionResult is the public snapshot returned by StreamingExecutor.
 // Messages contains only the extra runtime messages emitted around the tool call;
 // the canonical tool_result message is rebuilt by the engine when merging paths.
 type StreamingExecutionResult struct {
-	ToolUse    types.ToolUseContent
-	Index      int
-	Result     tool.CallResult
-	Messages   []types.Message
-	Error      error
-	ErrorStage ErrorStage
-	Progress   []types.ToolProgress
-	Trace      ToolExecutionTrace
+	ToolUse          types.ToolUseContent
+	Index            int
+	Result           tool.CallResult
+	Messages         []types.Message
+	Error            error
+	ErrorStage       ErrorStage
+	Progress         []types.ToolProgress
+	Trace            ToolExecutionTrace
+	FinalToolContext tool.ToolUseContext
 }
 
 type toolRuntimeState struct {

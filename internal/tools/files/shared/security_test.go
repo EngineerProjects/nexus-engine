@@ -3,6 +3,7 @@ package shared
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -354,6 +355,9 @@ func TestSymlinkTraversal_DetectedByIsInWorkingDirectory(t *testing.T) {
 	// symlink inside workspace pointing outside
 	link := filepath.Join(workspace, "escape.txt")
 	if err := os.Symlink(secret, link); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink creation unavailable: %v", err)
+		}
 		t.Fatalf("create symlink: %v", err)
 	}
 
@@ -377,6 +381,9 @@ func TestSymlinkTraversal_SymlinkAppearsInside(t *testing.T) {
 	link := filepath.Join(workspace, "link.txt")
 	// Link to a path outside (the parent temp dir).
 	if err := os.Symlink(filepath.Join(tmp, "outside.txt"), link); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink creation unavailable: %v", err)
+		}
 		t.Fatalf("create symlink: %v", err)
 	}
 	// Unresolved path appears to be inside.

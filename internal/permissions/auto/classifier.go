@@ -433,12 +433,14 @@ func (c *TwoStageClassifier) callStage1(ctx context.Context, systemPrompt, userC
 			Thinking:      !flags.ThinkingEnabled,
 		}
 
+		start := time.Now()
 		resp, err := c.apiClient.Classify(ctx, req)
+		elapsedMs := time.Since(start).Milliseconds()
 		if err != nil {
-			LogError(c.model, err, false)
+			LogError(c.model, err, false, elapsedMs)
 			return ""
 		}
-		LogSuccess(c.model, 0)
+		LogSuccess(c.model, elapsedMs)
 		return resp.Text
 	}
 	return `<block>yes</block><reason>No classifier available — blocking by default</reason>`
@@ -467,12 +469,14 @@ func (c *TwoStageClassifier) callStage2(ctx context.Context, systemPrompt, userC
 			Thinking:    !flags.ThinkingEnabled,
 		}
 
+		start := time.Now()
 		resp, err := c.apiClient.Classify(ctx, req)
+		elapsedMs := time.Since(start).Milliseconds()
 		if err != nil {
-			LogError(c.model, err, false)
+			LogError(c.model, err, false, elapsedMs)
 			return ""
 		}
-		LogSuccess(c.model, 0)
+		LogSuccess(c.model, elapsedMs)
 		return resp.Text
 	}
 	return `<block>yes</block><reason>No classifier available — blocking by default</reason>`

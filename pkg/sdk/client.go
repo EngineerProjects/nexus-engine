@@ -45,6 +45,7 @@ type Client struct {
 	closeOnce       sync.Once
 	closeErr        error
 	untitledCounter atomic.Int64
+	taskStorePath   string
 }
 
 type promptAwareTool interface {
@@ -187,6 +188,7 @@ func NewClient(config *ClientConfig) (*Client, error) {
 		browser:       browserManager,
 		artifacts:     artifactStore,
 		reaper:        reaper,
+		taskStorePath: config.SessionSQLitePath,
 	}
 
 	// Register shell pre-tool hooks from ClientConfig.
@@ -402,6 +404,11 @@ func (c *Client) Close() error {
 		}
 		if c.ownedStore && c.store != nil {
 			if err := c.store.Close(); err != nil {
+				errs = append(errs, err)
+			}
+		}
+		if c.taskStorePath != "" {
+			if err := taskTool.CloseGlobalTaskStore(c.taskStorePath); err != nil {
 				errs = append(errs, err)
 			}
 		}

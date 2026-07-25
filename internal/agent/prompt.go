@@ -57,7 +57,7 @@ Use ` + "`run_in_background: true`" + ` when the parent can continue without wai
 
 ## Parent/sub-agent workflow
 
-- Parent should keep the visible session checklist in ` + "`todo_write`" + `.
+- Parent should keep the visible session checklist with ` + "`task_create`" + ` and ` + "`task_update`" + `.
 - Sub-agents handle focused subtasks and report results back.
 - Read all sub-agent outputs before deciding follow-up actions.
 - If a sub-agent is gathering evidence, do not restate its conclusions as fact until you have read and integrated the result.

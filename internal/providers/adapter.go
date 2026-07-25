@@ -189,10 +189,21 @@ func (codexAdapter) applyAuthHeaders(c *Client, req *http.Request) {
 	req.Header.Set("Accept", "text/event-stream")
 }
 
-// decodeResponse mirrors the former decodeProviderResponse switch, which grouped
-// codex with the OpenAI decoder. In practice codex is always streamed.
+// decodeResponse used to delegate to the OpenAI Chat Completions decoder,
+// which expects a single plain JSON object - but Codex's Responses API
+// always answers as an SSE stream (see CreateMessage's "Z.ai/GLM and Codex
+// only support streaming" branch, which forces this path anyway even for
+// non-streaming callers like the auto-mode classifier). Decoding that as one
+// JSON document failed on the literal first byte of "event: ..." with
+// "invalid character 'e' looking for beginning of value" on every call.
+// parseCodexSSEStream is the same reader createStreamResult below uses for
+// real streaming, just with no onChunk callback to fire as it goes.
 func (codexAdapter) decodeResponse(_ *Client, body io.Reader, model types.ModelIdentifier) (types.APIResponse, error) {
-	return decodeOpenAIResponse(body, model)
+	result, err := parseCodexSSEStream(context.Background(), body, model, nil)
+	if err != nil {
+		return types.APIResponse{}, err
+	}
+	return result.Response, nil
 }
 
 func (codexAdapter) createStreamResult(c *Client, ctx context.Context, req types.APIRequest, onChunk func(types.APIResponseChunk)) (*types.APIStreamResult, error) {
