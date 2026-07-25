@@ -68,7 +68,7 @@ func TestApplyRuntimeEnvFromConfig(t *testing.T) {
 	if got := os.Getenv("CLOUD_ML_REGION"); got != "us-east5" {
 		t.Fatalf("unexpected region env: got %q", got)
 	}
-	if got := os.Getenv("SESHAT_RUNTIME_ROOT"); got != "/tmp/seshat-runtime" {
+	if got := os.Getenv("SESHAT_RUNTIME_ROOT"); got != filepath.FromSlash("/tmp/seshat-runtime") {
 		t.Fatalf("unexpected runtime root env: got %q", got)
 	}
 }
@@ -150,13 +150,14 @@ func TestEffectiveSessionDBPathFallsBackToDBPath(t *testing.T) {
 
 func TestEffectiveRuntimePathsUseUnifiedRoot(t *testing.T) {
 	cfg := Config{RuntimeRoot: "/tmp/seshat-runtime"}
-	if got := EffectiveRuntimeRoot(cfg); got != "/tmp/seshat-runtime" {
+	runtimeRoot := filepath.FromSlash("/tmp/seshat-runtime")
+	if got := EffectiveRuntimeRoot(cfg); got != runtimeRoot {
 		t.Fatalf("unexpected runtime root: %q", got)
 	}
-	if got := EffectiveDBPath(cfg); got != "/tmp/seshat-runtime/seshat.db" {
+	if got := EffectiveDBPath(cfg); got != filepath.Join(runtimeRoot, "seshat.db") {
 		t.Fatalf("unexpected db path: %q", got)
 	}
-	if got := EffectiveStorageLocalPath(cfg); got != "/tmp/seshat-runtime/storage" {
+	if got := EffectiveStorageLocalPath(cfg); got != filepath.Join(runtimeRoot, "storage") {
 		t.Fatalf("unexpected storage path: %q", got)
 	}
 }

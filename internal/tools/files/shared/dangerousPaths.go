@@ -2,6 +2,7 @@ package shared
 
 import (
 	"fmt"
+	pathpkg "path"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -104,11 +105,11 @@ func IsDangerousFile(path string) bool {
 
 // IsDangerousDirectory checks if a path is in or points to a dangerous directory.
 func IsDangerousDirectory(path string) bool {
-	normalizedPath := strings.ToLower(filepath.Clean(path))
-	pathParts := strings.Split(normalizedPath, string(filepath.Separator))
+	normalizedPath := strings.ToLower(strings.ReplaceAll(filepath.Clean(path), "\\", "/"))
+	pathParts := strings.Split(normalizedPath, "/")
 
 	for _, dangerousDir := range DangerousDirectories {
-		dangerousParts := strings.Split(strings.ToLower(dangerousDir), string(filepath.Separator))
+		dangerousParts := strings.Split(strings.ToLower(strings.ReplaceAll(dangerousDir, "\\", "/")), "/")
 		if isPathInDirectory(pathParts, dangerousParts) {
 			return true
 		}
@@ -138,9 +139,9 @@ func isPathInDirectory(pathParts, dirParts []string) bool {
 }
 
 func matchingProtectedSystemRemovalExactPath(path string) string {
-	clean := filepath.Clean(path)
+	clean := cleanRemovalPath(path)
 	for _, exact := range protectedSystemRemovalExactPaths {
-		if clean == filepath.Clean(exact) {
+		if clean == cleanRemovalPath(exact) {
 			return exact
 		}
 	}
@@ -148,14 +149,18 @@ func matchingProtectedSystemRemovalExactPath(path string) string {
 }
 
 func matchingProtectedSystemRemovalPrefix(path string) string {
-	clean := filepath.Clean(path)
+	clean := cleanRemovalPath(path)
 	for _, prefix := range protectedSystemRemovalPrefixes {
-		root := filepath.Clean(prefix)
-		if clean == root || strings.HasPrefix(clean, root+string(filepath.Separator)) {
+		root := cleanRemovalPath(prefix)
+		if clean == root || strings.HasPrefix(clean, root+"/") {
 			return prefix
 		}
 	}
 	return ""
+}
+
+func cleanRemovalPath(path string) string {
+	return pathpkg.Clean(strings.ReplaceAll(path, "\\", "/"))
 }
 
 // CheckDangerousRemovalPath checks if a removal path is dangerous.
@@ -164,7 +169,7 @@ func CheckDangerousRemovalPath(path string, cwd string) error {
 	// Expand tilde first
 	expandedPath := expandTilde(path)
 	cleanPath := filepath.Clean(expandedPath)
-	if filepath.IsAbs(cleanPath) {
+	if filepath.IsAbs(cleanPath) || strings.HasPrefix(strings.ReplaceAll(cleanPath, "\\", "/"), "/") {
 		return checkAbsoluteRemovalPath(cleanPath)
 	}
 	// For relative paths, resolve against cwd
@@ -269,6 +274,7 @@ func IsInWorkingDirectory(path, workingDir string) bool {
 func HasSuspiciousPattern(path string) bool {
 	baseName := filepath.Base(path)
 	lowerPath := strings.ToLower(path)
+	slashPath := strings.ToLower(strings.ReplaceAll(path, "\\", "/"))
 	lowerBase := strings.ToLower(baseName)
 
 	// Check for NTFS Alternate Data Streams (Windows)
@@ -289,7 +295,7 @@ func HasSuspiciousPattern(path string) bool {
 
 	// Check for long path prefixes (Windows)
 	if strings.HasPrefix(lowerPath, `\\?\`) ||
-		strings.HasPrefix(lowerPath, `//?/`) ||
+		strings.HasPrefix(slashPath, `//?/`) ||
 		strings.HasPrefix(lowerPath, `\\.\`) {
 		return true
 	}
@@ -323,9 +329,9 @@ func HasSuspiciousPattern(path string) bool {
 	}
 
 	// Check for UNC paths (\\server\share or //server/share)
-	if strings.HasPrefix(lowerPath, `\\`) || strings.HasPrefix(lowerPath, `//`) {
+	if strings.HasPrefix(lowerPath, `\\`) || strings.HasPrefix(slashPath, `//`) {
 		// Split into parts and check if it's a valid UNC path
-		parts := strings.Split(strings.TrimPrefix(strings.TrimPrefix(lowerPath, `\\`), `//`), string(filepath.Separator))
+		parts := strings.Split(strings.TrimPrefix(strings.TrimPrefix(slashPath, `\\`), `//`), "/")
 		if len(parts) >= 2 {
 			// This looks like a UNC path: \\server\share\path
 			return true

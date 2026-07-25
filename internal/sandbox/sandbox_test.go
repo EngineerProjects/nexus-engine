@@ -55,8 +55,12 @@ func TestFilesystemPolicyAllowsAbsolutePathOutsideWorkspace(t *testing.T) {
 	// The user approves out-of-workspace access via the permission dialog;
 	// dangerous-prefix blocking (writeDeniedPrefixes) still applies for writes.
 	tmp := t.TempDir()
+	outside := filepath.Join(t.TempDir(), "passwd")
+	if err := os.WriteFile(outside, []byte("ok"), 0o600); err != nil {
+		t.Fatalf("write outside file: %v", err)
+	}
 	policy := NewDefaultFilesystemPolicy()
-	decision, err := policy.EvaluatePath(Context{WorkspaceRoot: tmp}, "/etc/passwd", AccessRead)
+	decision, err := policy.EvaluatePath(Context{WorkspaceRoot: tmp}, outside, AccessRead)
 	if err != nil {
 		t.Fatalf("EvaluatePath: %v", err)
 	}
@@ -482,24 +486,34 @@ func TestContextResolvePath_EmptyPathReturnsError(t *testing.T) {
 }
 
 func TestContextResolvePath_RelativeWithWorkingDirectory(t *testing.T) {
-	ctx := Context{WorkingDirectory: "/home/user/project"}
+	workingDir := filepath.FromSlash("/home/user/project")
+	ctx := Context{WorkingDirectory: workingDir}
 	got, err := ctx.ResolvePath("src/main.go")
 	if err != nil {
 		t.Fatalf("ResolvePath: %v", err)
 	}
-	if got != "/home/user/project/src/main.go" {
+	want, err := filepath.Abs(filepath.Join(workingDir, filepath.FromSlash("src/main.go")))
+	if err != nil {
+		t.Fatalf("Abs: %v", err)
+	}
+	if got != want {
 		t.Errorf("unexpected resolved path: %q", got)
 	}
 }
 
 func TestContextResolvePath_AbsolutePathWithoutWorkspace(t *testing.T) {
 	ctx := Context{}
-	got, err := ctx.ResolvePath("/tmp/file.txt")
+	raw := filepath.FromSlash("/tmp/file.txt")
+	got, err := ctx.ResolvePath(raw)
 	if err != nil {
 		t.Fatalf("ResolvePath: %v", err)
 	}
-	if got != "/tmp/file.txt" {
-		t.Errorf("expected /tmp/file.txt, got %q", got)
+	want, err := filepath.Abs(filepath.Clean(raw))
+	if err != nil {
+		t.Fatalf("Abs: %v", err)
+	}
+	if got != want {
+		t.Errorf("expected %q, got %q", want, got)
 	}
 }
 

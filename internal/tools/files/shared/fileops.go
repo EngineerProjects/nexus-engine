@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -24,8 +25,9 @@ var blockedDevicePaths = []string{
 
 // IsBlockedDevicePath reports whether filePath is (or is under) a blocked device node.
 func IsBlockedDevicePath(filePath string) bool {
+	normalized := strings.ReplaceAll(filePath, "\\", "/")
 	for _, device := range blockedDevicePaths {
-		if strings.HasPrefix(filePath, device) || strings.HasPrefix(filePath, device+"/") {
+		if strings.HasPrefix(normalized, device) || strings.HasPrefix(normalized, device+"/") {
 			return true
 		}
 	}
@@ -54,12 +56,27 @@ func ValidateSensitivePath(absolutePath, toolName, content string) error {
 		}
 	}
 	baseName := strings.ToLower(filepath.Base(absolutePath))
+	normalizedPath := strings.ToLower(strings.ReplaceAll(absolutePath, "\\", "/"))
+	if runtime.GOOS == "windows" && strings.HasPrefix(normalizedPath, "/") {
+		baseName = strings.ToLower(pathBaseSlash(normalizedPath))
+	}
 	if baseName == ".env" || strings.HasPrefix(baseName, ".env.") ||
-		strings.Contains(strings.ToLower(absolutePath), "/.ssh/") {
+		strings.Contains(normalizedPath, "/.ssh/") {
 		return fmt.Errorf("%s sensitive credential files is not allowed through %s: %s",
 			toolName, toolName, absolutePath)
 	}
 	return nil
+}
+
+func pathBaseSlash(path string) string {
+	path = strings.TrimRight(path, "/")
+	if path == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(path, "/"); idx >= 0 {
+		return path[idx+1:]
+	}
+	return path
 }
 
 // GitDiff holds a minimal summary of git changes for a file.
