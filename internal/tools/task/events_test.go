@@ -13,6 +13,7 @@ func TestTaskCreateEmitsRuntimeEvent(t *testing.T) {
 	if err := InitializeGlobalTaskStore(path); err != nil {
 		t.Fatalf("initialize task store: %v", err)
 	}
+	t.Cleanup(func() { _ = CloseGlobalTaskStore(path) })
 	var emitted types.RuntimeEvent
 	ctx := context.WithValue(context.Background(), types.RuntimeEventEmitterKey, func(ev types.RuntimeEvent) {
 		emitted = ev
@@ -48,6 +49,7 @@ func TestTaskUpdateEmitsDeleteRuntimeEvent(t *testing.T) {
 	if err := InitializeGlobalTaskStore(path); err != nil {
 		t.Fatalf("initialize task store: %v", err)
 	}
+	t.Cleanup(func() { _ = CloseGlobalTaskStore(path) })
 	ctx := context.Background()
 	created, err := GlobalTaskStore().CreateTask(ctx, "session-1", "Remove legacy todo", "", "", nil)
 	if err != nil {
@@ -85,6 +87,7 @@ func TestTaskListAddsRenderMetadata(t *testing.T) {
 	if err := InitializeGlobalTaskStore(path); err != nil {
 		t.Fatalf("initialize task store: %v", err)
 	}
+	t.Cleanup(func() { _ = CloseGlobalTaskStore(path) })
 	ctx := context.Background()
 	if _, err := GlobalTaskStore().CreateTask(ctx, "session-1", "Implement sidebar tasks", "", "Implementing sidebar tasks", nil); err != nil {
 		t.Fatalf("create task: %v", err)

@@ -88,6 +88,7 @@ func TestOnRuntimeEventSyncsSessionTodosFromTaskStore(t *testing.T) {
 	if err := tasktool.InitializeGlobalTaskStore(path); err != nil {
 		t.Fatalf("initialize task store: %v", err)
 	}
+	t.Cleanup(func() { _ = tasktool.CloseGlobalTaskStore(path) })
 	ctx := context.Background()
 	_, err := tasktool.GlobalTaskStore().CreateTask(ctx, "session-1", "Implement sidebar tasks", "Render a task details panel", "Implementing sidebar tasks", nil)
 	if err != nil {

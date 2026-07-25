@@ -781,6 +781,7 @@ func TestNewClientUsesInjectedSessionBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
+	defer client.Close()
 
 	if client.store == nil {
 		t.Fatal("expected client store to be initialized from injected session backend")
@@ -817,6 +818,7 @@ func TestNewClientUsesSQLiteSessionBackend(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
 	}
+	defer client.Close()
 
 	if client.store == nil {
 		t.Fatal("expected client store to be initialized from sqlite session backend")

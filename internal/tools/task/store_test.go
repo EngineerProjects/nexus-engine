@@ -11,6 +11,7 @@ func TestSQLiteTaskStorePersistsTasksBySession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite task store: %v", err)
 	}
+	defer store.Close()
 
 	ctx := context.Background()
 	first, err := store.CreateTask(ctx, "session-1", "First task", "Do the first thing", "Doing the first thing", map[string]any{"step": 1})
@@ -42,6 +43,7 @@ func TestSQLiteTaskStorePersistsTasksBySession(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload sqlite task store: %v", err)
 	}
+	defer reloaded.Close()
 	gotSession1, err := reloaded.ListTasks(ctx, "session-1")
 	if err != nil {
 		t.Fatalf("list session-1 tasks: %v", err)
@@ -70,6 +72,7 @@ func TestSQLiteTaskStorePersistsBlockRelationships(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite task store: %v", err)
 	}
+	defer store.Close()
 	ctx := context.Background()
 	first, err := store.CreateTask(ctx, "session-1", "First", "", "", nil)
 	if err != nil {
@@ -86,6 +89,7 @@ func TestSQLiteTaskStorePersistsBlockRelationships(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload sqlite task store: %v", err)
 	}
+	defer reloaded.Close()
 	firstReloaded, err := reloaded.GetTask(ctx, "session-1", first.ID)
 	if err != nil {
 		t.Fatalf("get first task: %v", err)

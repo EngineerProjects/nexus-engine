@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/KPO-Tech/seshat/internal/db"
@@ -38,6 +39,7 @@ type TaskStore struct {
 }
 
 var globalTaskStore = NewTaskStore()
+var taskIDCounter atomic.Uint64
 
 func NewTaskStore() *TaskStore {
 	return &TaskStore{
@@ -62,6 +64,10 @@ func InitializeGlobalTaskStore(path string) error {
 	return globalTaskStore.ConfigureSQLite(path)
 }
 
+func CloseGlobalTaskStore(path string) error {
+	return globalTaskStore.CloseSQLite(path)
+}
+
 func (s *TaskStore) ConfigureSQLite(path string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -83,12 +89,31 @@ func (s *TaskStore) ConfigureSQLite(path string) error {
 	return nil
 }
 
+func (s *TaskStore) CloseSQLite(path string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.database == nil {
+		return nil
+	}
+	if path != "" && s.dbPath != path {
+		return nil
+	}
+	err := s.database.Close()
+	s.database = nil
+	s.dbPath = ""
+	return err
+}
+
+func (s *TaskStore) Close() error {
+	return s.CloseSQLite("")
+}
+
 func (s *TaskStore) CreateTask(ctx context.Context, sessionID, subject, description, activeForm string, metadata map[string]any) (*Task, error) {
 	if sessionID == "" {
 		return nil, fmt.Errorf("session ID is required")
 	}
 	now := time.Now().UTC()
-	taskID := fmt.Sprintf("%d", now.UnixNano())
+	taskID := fmt.Sprintf("%d-%d", now.UnixNano(), taskIDCounter.Add(1))
 	if s.database != nil {
 		position, err := s.database.NextSessionTaskPosition(ctx, sessionID)
 		if err != nil {
