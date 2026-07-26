@@ -394,7 +394,7 @@ func (t *Tool) handleBinaryFile(filePath string) (tool.CallResult, error) {
 
 // readPDFFile reads a PDF file.
 // When a docling client is configured and reachable it converts the PDF to
-// structured markdown (preserving tables, images, headings).  Otherwise it
+// structured markdown (preserving tables, figures, headings). Otherwise it
 // falls back to base64 pass-through so the model can at least read the raw PDF.
 func (t *Tool) readPDFFile(
 	ctx context.Context,
@@ -460,7 +460,7 @@ fallback:
 			if ctx.Err() != nil {
 				return tool.NewErrorResult(fmt.Errorf("file read cancelled")), nil
 			}
-			return tool.NewErrorResult(fmt.Errorf("failed to extract PDF pages: %w", err)), nil
+			return t.readWholePDFFallback(ctx, filePath, fileInfo, fmt.Sprintf("Could not extract requested PDF pages (%v). Falling back to the full PDF.", err))
 		}
 		result := &FileReadResult{
 			Type: FileTypePDFExtracted,
@@ -499,6 +499,35 @@ fallback:
 		},
 	}
 	return tool.NewTextResult(t.formatPDFResult(result)), nil
+}
+
+func (t *Tool) readWholePDFFallback(ctx context.Context, filePath string, fileInfo os.FileInfo, warning string) (tool.CallResult, error) {
+	select {
+	case <-ctx.Done():
+		return tool.NewErrorResult(fmt.Errorf("file read cancelled")), nil
+	default:
+	}
+	pageCount, err := GetPDFPageCount(filePath)
+	if err != nil {
+		return tool.NewErrorResult(fmt.Errorf("failed to get PDF page count after page extraction failed: %w", err)), nil
+	}
+	if pageCount > PDFATMentionInlineThreshold {
+		return tool.NewErrorResult(fmt.Errorf("%s The PDF has %d pages, which is too many to read at once. Try converting it with docling-serve or use a smaller page range.", warning, pageCount)), nil
+	}
+	pdfResult, err := ReadPDF(filePath)
+	if err != nil {
+		return tool.NewErrorResult(fmt.Errorf("failed to read PDF after page extraction failed: %w", err)), nil
+	}
+	result := &FileReadResult{
+		Type: FileTypePDF,
+		PDF: &PDFFileResult{
+			FilePath:     filePath,
+			Base64:       pdfResult.Base64,
+			OriginalSize: fileInfo.Size(),
+			PageCount:    pageCount,
+		},
+	}
+	return tool.NewTextResult(warning + "\n\n" + t.formatPDFResult(result)), nil
 }
 
 // readDoclingFile converts a docling-supported binary file (DOCX, PPTX, XLSX, WAV, MP3)
@@ -683,11 +712,11 @@ func (t *Tool) formatPDFMarkdownResult(result *FileReadResult) string {
 	b.WriteString(fmt.Sprintf("PDF: %s\n", r.FilePath))
 	b.WriteString(fmt.Sprintf("Pages: %d | Size: %d bytes\n", r.PageCount, r.OriginalSize))
 	if len(r.Images) > 0 {
-		b.WriteString(fmt.Sprintf("Extracted images: %d\n", len(r.Images)))
+		b.WriteString(fmt.Sprintf("Extracted images/figures: %d\n", len(r.Images)))
 		for _, img := range r.Images {
-			b.WriteString(fmt.Sprintf("  - %s (%s) [data:%s;base64,%s]\n",
-				img.Filename, img.MimeType, img.MimeType, img.Base64))
+			b.WriteString(fmt.Sprintf("  - %s (%s)\n", img.Filename, img.MimeType))
 		}
+		b.WriteString("Image bytes are intentionally omitted from this text result; use a vision-capable path only when visual inspection is required.\n")
 	}
 	b.WriteString("\n")
 	b.WriteString(r.Markdown)
@@ -704,11 +733,11 @@ func (t *Tool) formatDoclingResult(result *FileReadResult) string {
 	}
 	b.WriteString("\n")
 	if len(r.Images) > 0 {
-		b.WriteString(fmt.Sprintf("Extracted images: %d\n", len(r.Images)))
+		b.WriteString(fmt.Sprintf("Extracted images/figures: %d\n", len(r.Images)))
 		for _, img := range r.Images {
-			b.WriteString(fmt.Sprintf("  - %s (%s) [data:%s;base64,%s]\n",
-				img.Filename, img.MimeType, img.MimeType, img.Base64))
+			b.WriteString(fmt.Sprintf("  - %s (%s)\n", img.Filename, img.MimeType))
 		}
+		b.WriteString("Image bytes are intentionally omitted from this text result; use a vision-capable path only when visual inspection is required.\n")
 	}
 	b.WriteString("\n")
 	b.WriteString(r.Markdown)
@@ -842,7 +871,7 @@ func (t *Tool) BackfillInput(ctx context.Context, input map[string]any) map[stri
 	return input
 }
 
-// ── Tool metadata ──────────────────────────────────────────────────────────────
+// Tool metadata
 
 // ToolName is the name of the file read tool.
 const ToolName = "read_file"
@@ -859,7 +888,8 @@ Usage:
 - Results are returned using cat -n format, with line numbers starting at 1
 - When you already know which part of the file you need, only read that part. This can be important for larger files.
 - This tool allows reading images (eg PNG, JPG, etc). When reading an image file the contents are presented visually.
-- This tool can read PDF files (.pdf). For large PDFs (more than 10 pages), you must provide the pages parameter to read specific page ranges (e.g., pages: "1-5"). Reading a large PDF without the pages parameter will fail. Maximum 20 pages per request.
+- This tool reads PDFs best when docling-serve is configured: Docling converts PDF text, tables, headings, and layout to markdown suitable for classic text LLMs.
+- Without docling-serve, PDFs fall back to raw PDF bytes/page extraction; this is less useful for classic text-only models and should be treated as a degraded fallback.
 - This tool can read Jupyter notebooks (.ipynb files) and returns all cells with their outputs, combining code, text, and visualizations.
 - When docling-serve is configured, this tool can convert DOCX, PPTX, XLSX documents and transcribe WAV/MP3 audio files to markdown automatically.
 - This tool can only read files, not directories. To read a directory, use an ls command via the Bash tool.
