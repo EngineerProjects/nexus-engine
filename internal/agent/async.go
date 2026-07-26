@@ -497,11 +497,11 @@ func (m *AsyncAgentManager) runAgent(agent *AsyncAgent) {
 	endTime := time.Now()
 	agent.stateMu.Lock()
 	agent.EndTime = endTime
+	agent.Result = result
 	if err != nil {
 		agent.Error = err
 		agent.Status = AgentStatusFailed
 	} else if result.Success {
-		agent.Result = result
 		agent.Status = AgentStatusCompleted
 	} else {
 		agent.Error = fmt.Errorf("%s", result.Error)

@@ -519,6 +519,21 @@ func TestAskCompletesOpenAIMonoRun(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "text/event-stream")
+		if payload["stream"] == false {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "chatcmpl-title",
+				"choices": []map[string]any{
+					{
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "Check Both",
+						},
+					},
+				},
+			})
+			return
+		}
 		switch requests {
 		case 1:
 			if !sdkProviderPayloadHasTool(payload, "sdk_stub") {
@@ -653,6 +668,21 @@ func TestAskStreamsResponseChunksToHost(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "text/event-stream")
+		if payload["stream"] == false {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "chatcmpl-title",
+				"choices": []map[string]any{
+					{
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "Check Both",
+						},
+					},
+				},
+			})
+			return
+		}
 		switch requests {
 		case 1:
 			sdkWriteStreamEvents(t, w, []map[string]any{
@@ -807,6 +837,58 @@ func TestNewClientUsesInjectedSessionBackend(t *testing.T) {
 	}
 	if sessions[0].ID != sessionID {
 		t.Fatalf("expected listed session %q, got %q", sessionID, sessions[0].ID)
+	}
+}
+
+func TestClientSearchTranscriptsByContentUsesConfiguredStore(t *testing.T) {
+	backend := NewMemorySessionBackend()
+	client, err := NewClient(&ClientConfig{
+		PersistSessions: false,
+		SessionBackend:  backend,
+	})
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	defer client.Close()
+
+	matchingID := types.SessionID("session-matching-transcript")
+	otherID := types.SessionID("session-other-transcript")
+	for _, sessionID := range []types.SessionID{matchingID, otherID} {
+		if err := client.store.SaveSession(sessionID, &types.SessionMetadata{
+			ID:        sessionID,
+			Status:    types.SessionStatusActive,
+			CreatedAt: time.Unix(1700000300, 0).UTC(),
+			UpdatedAt: time.Unix(1700000301, 0).UTC(),
+		}); err != nil {
+			t.Fatalf("SaveSession(%s) failed: %v", sessionID, err)
+		}
+	}
+
+	if err := client.store.ReplaceTranscript(matchingID, []types.TranscriptEntry{{
+		ID:        types.MessageID("msg-matching"),
+		Type:      types.EntryTypeMessage,
+		Role:      types.RoleUser,
+		Content:   []types.ContentBlock{types.TextContent{Text: "Needle phrase in transcript"}},
+		Timestamp: time.Unix(1700000302, 0).UTC(),
+	}}); err != nil {
+		t.Fatalf("ReplaceTranscript(matching) failed: %v", err)
+	}
+	if err := client.store.ReplaceTranscript(otherID, []types.TranscriptEntry{{
+		ID:        types.MessageID("msg-other"),
+		Type:      types.EntryTypeMessage,
+		Role:      types.RoleUser,
+		Content:   []types.ContentBlock{types.TextContent{Text: "No useful match here"}},
+		Timestamp: time.Unix(1700000303, 0).UTC(),
+	}}); err != nil {
+		t.Fatalf("ReplaceTranscript(other) failed: %v", err)
+	}
+
+	sessionIDs, err := client.SearchTranscriptsByContent("needle phrase", 10)
+	if err != nil {
+		t.Fatalf("SearchTranscriptsByContent failed: %v", err)
+	}
+	if len(sessionIDs) != 1 || sessionIDs[0] != matchingID {
+		t.Fatalf("expected only %s, got %#v", matchingID, sessionIDs)
 	}
 }
 
@@ -1070,12 +1152,26 @@ func TestAskCompletesOllamaMonoRun(t *testing.T) {
 func TestAskCompletesGeminiMonoRun(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests++
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode request payload: %v", err)
 		}
 
+		if strings.Contains(r.URL.String(), ":generateContent") {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"candidates": []map[string]any{
+					{
+						"content": map[string]any{
+							"parts": []map[string]any{{"text": "Check Both"}},
+						},
+					},
+				},
+			})
+			return
+		}
+
+		requests++
 		if !strings.Contains(r.URL.String(), ":streamGenerateContent?alt=sse") {
 			t.Fatalf("expected gemini stream endpoint, got %s", r.URL.String())
 		}
