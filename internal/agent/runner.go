@@ -280,7 +280,10 @@ func RunAgent(config *RunConfig) (*RunResult, error) {
 
 	continuationFn := config.ContinuationMessage
 	if continuationFn == nil {
-		continuationFn = func(_ int, _ string) string {
+		continuationFn = func(_ int, output string) string {
+			if strings.TrimSpace(output) == "" {
+				return "Return a concise final answer now. Summarize what you checked, what you found, and any blocker or error. Do not call more tools unless a final answer would be misleading without one."
+			}
 			return "Continue with the task."
 		}
 	}
@@ -356,6 +359,10 @@ func RunAgent(config *RunConfig) (*RunResult, error) {
 
 		if config.Callback != nil {
 			config.Callback(turn, lastOutput.String(), totalToolUses)
+		}
+
+		if strings.TrimSpace(lastOutput.String()) == "" && len(resp.GetLastToolResults()) > 0 && turn < maxTurns {
+			continue
 		}
 
 		// Check stop condition; if true the agent considers itself done.

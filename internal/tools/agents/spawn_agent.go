@@ -201,6 +201,18 @@ func (t *SpawnAgentTool) Call(
 			if ag.Status == coreagent.AgentStatusFailed {
 				status = "failed"
 			}
+			metadata := map[string]any{"subagent_finished": true}
+			if ag.Result != nil {
+				if content := strings.TrimSpace(ag.Result.Output); content != "" {
+					metadata["content"] = content
+				}
+				if ag.Result.SessionID != "" {
+					metadata["session_id"] = string(ag.Result.SessionID)
+				}
+			}
+			if ag.Error != nil {
+				metadata["error"] = ag.Error.Error()
+			}
 			emitter(types.RuntimeEvent{
 				Type:      types.RuntimeEventTypeToolProgress,
 				Timestamp: time.Now(),
@@ -208,7 +220,7 @@ func (t *SpawnAgentTool) Call(
 					ToolUseID: callID,
 					ToolName:  "spawn_agent",
 					Stage:     types.ToolProgressStage(status),
-					Metadata:  map[string]any{"subagent_finished": true},
+					Metadata:  metadata,
 				},
 			})
 		}
