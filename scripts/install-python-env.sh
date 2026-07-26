@@ -83,6 +83,18 @@ else
     success "Venv created."
 fi
 
+# `uv venv` always produces a Windows-layout venv (Scripts\python.exe) when
+# uv.exe itself is the native Windows binary - true even when this script
+# runs under Git Bash, where `uname`-based OS checks don't reliably catch
+# it. Probe the venv's own layout instead of guessing from the OS.
+if [ -f "$VENV_DIR/Scripts/python.exe" ]; then
+    PY_BIN="$VENV_DIR/Scripts/python.exe"
+    DOCLING_BIN="$VENV_DIR/Scripts/docling-serve.exe"
+else
+    PY_BIN="$VENV_DIR/bin/python"
+    DOCLING_BIN="$VENV_DIR/bin/docling-serve"
+fi
+
 # ── 4. Install docling-serve ─────────────────────────────────────────────────
 PACKAGE="docling-serve"
 if [ -n "$DOCLING_EXTRAS" ]; then
@@ -90,12 +102,11 @@ if [ -n "$DOCLING_EXTRAS" ]; then
 fi
 
 info "Installing $PACKAGE into $VENV_DIR ..."
-uv pip install --python "$VENV_DIR/bin/python" "$PACKAGE"
+uv pip install --python "$PY_BIN" "$PACKAGE"
 success "docling-serve installed."
 
 # ── 5. Verify ────────────────────────────────────────────────────────────────
-DOCLING_BIN="$VENV_DIR/bin/docling-serve"
-if [ ! -x "$DOCLING_BIN" ]; then
+if [ ! -f "$DOCLING_BIN" ]; then
     error "docling-serve binary not found at $DOCLING_BIN after installation."
     exit 1
 fi

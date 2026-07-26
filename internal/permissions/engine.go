@@ -1061,7 +1061,13 @@ func isAlwaysSafeTool(name string) bool {
 		// Utility / introspection
 		"tool_search", "lsp", "monitor", "skill",
 		// User interaction (never destructive — agent explicitly needs human input)
-		"ask_user_question":
+		"ask_user_question",
+		// Plan-mode transitions have no side effect beyond switching the
+		// session's own mode state - unlike isSafeWorkflowTool below (which
+		// only fires in onRequest mode), these two need to work in Auto mode
+		// too, where without this they depend entirely on the auto-mode
+		// classifier's LLM call succeeding just to flip a mode flag.
+		"enter_plan_mode", "exit_plan_mode":
 		return true
 	}
 	return false

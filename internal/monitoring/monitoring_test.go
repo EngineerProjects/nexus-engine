@@ -2,6 +2,8 @@ package monitoring
 
 import (
 	"context"
+	"path/filepath"
+
 	"github.com/stretchr/testify/assert"
 	"os"
 	"testing"
@@ -259,8 +261,7 @@ func TestLoggerTextFormat(t *testing.T) {
 }
 
 func TestLoggerWithFileOutput(t *testing.T) {
-	tempFile := "/tmp/test_seshat.log"
-	defer os.Remove(tempFile)
+	tempFile := filepath.Join(t.TempDir(), "test_seshat.log")
 
 	config := &LoggerConfig{
 		Level:    LogLevelInfo,
@@ -269,6 +270,7 @@ func TestLoggerWithFileOutput(t *testing.T) {
 		Format:   "text",
 	}
 	logger := NewLoggerWithConfig(config)
+	defer logger.Close()
 
 	logger.Info("test file message", nil)
 
@@ -1026,8 +1028,8 @@ func TestIntegratedMetricsFlow(t *testing.T) {
 	system.RecordAPISuccess(100 * time.Millisecond)
 
 	// 2. Tool Call
-	system.RecordToolCall("file_read")
-	system.RecordToolSuccess("file_read", 50*time.Millisecond)
+	system.RecordToolCall("read_file")
+	system.RecordToolSuccess("read_file", 50*time.Millisecond)
 
 	// 3. Query Turn
 	system.RecordQueryTurn()

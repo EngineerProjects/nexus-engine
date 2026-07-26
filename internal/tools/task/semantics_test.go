@@ -13,6 +13,7 @@ func TestTaskListDefaultsToTodoWhenSessionTasksExist(t *testing.T) {
 	if err := InitializeGlobalTaskStore(path); err != nil {
 		t.Fatalf("initialize task store: %v", err)
 	}
+	t.Cleanup(func() { _ = CloseGlobalTaskStore(path) })
 	ctx := context.Background()
 	if _, err := GlobalTaskStore().CreateTask(ctx, "session-1", "Implement sidebar tasks", "Persist and render tasks", "Implementing sidebar tasks", nil); err != nil {
 		t.Fatalf("create task: %v", err)
@@ -48,6 +49,7 @@ func TestTaskGetReturnsTodoTaskByDefault(t *testing.T) {
 	if err := InitializeGlobalTaskStore(path); err != nil {
 		t.Fatalf("initialize task store: %v", err)
 	}
+	t.Cleanup(func() { _ = CloseGlobalTaskStore(path) })
 	ctx := context.Background()
 	created, err := GlobalTaskStore().CreateTask(ctx, "session-1", "Implement task details", "Render a detailed task pane", "Rendering task details", nil)
 	if err != nil {
@@ -87,6 +89,7 @@ func TestTaskStopDeletesTodoTaskByDefault(t *testing.T) {
 	if err := InitializeGlobalTaskStore(path); err != nil {
 		t.Fatalf("initialize task store: %v", err)
 	}
+	t.Cleanup(func() { _ = CloseGlobalTaskStore(path) })
 	ctx := context.Background()
 	created, err := GlobalTaskStore().CreateTask(ctx, "session-1", "Drop obsolete task", "This task should be stopped", "Dropping obsolete task", nil)
 	if err != nil {

@@ -22,7 +22,7 @@ import (
 // Each tool implements ToAutoClassifierInput to provide a compact
 // representation of its input for the classifier.
 type Tool interface {
-	Name() string                                      // Tool name (e.g., "Read", "Edit")
+	Name() string                                      // Tool name (e.g., "read_file", "edit_file")
 	Aliases() []string                                 // Alternative names for the tool
 	ToAutoClassifierInput(input map[string]any) string // Encode input for classifier
 }
@@ -74,47 +74,56 @@ func NewDefaultTool(name string, aliases []string, inputFn func(map[string]any) 
 }
 
 var DefaultToolRegistry = []Tool{
-	NewDefaultTool("Read", []string{}, func(input map[string]any) string {
-		path := input["path"]
-		return fmt.Sprintf("Read %v", path)
+	NewDefaultTool("read_file", []string{"Read"}, func(input map[string]any) string {
+		path := input["file_path"]
+		if path == nil {
+			path = input["path"]
+		}
+		return fmt.Sprintf("read_file %v", path)
 	}),
-	NewDefaultTool("Edit", []string{}, func(input map[string]any) string {
+	NewDefaultTool("edit_file", []string{"Edit"}, func(input map[string]any) string {
 		oldString := input["old_string"]
 		newString := input["new_string"]
-		return fmt.Sprintf("Edit: replace %v with %v", oldString, newString)
+		return fmt.Sprintf("edit_file: replace %v with %v", oldString, newString)
 	}),
-	NewDefaultTool("Write", []string{}, func(input map[string]any) string {
-		path := input["path"]
+	NewDefaultTool("write_file", []string{"Write"}, func(input map[string]any) string {
+		path := input["file_path"]
+		if path == nil {
+			path = input["path"]
+		}
 		content := input["content"]
-		return fmt.Sprintf("Write %v (length=%d)", path, len(fmt.Sprintf("%v", content)))
+		return fmt.Sprintf("write_file %v (length=%d)", path, len(fmt.Sprintf("%v", content)))
 	}),
 	NewDefaultTool("bash", []string{"Shell", "Command"}, func(input map[string]any) string {
 		command := input["command"]
 		return fmt.Sprintf("Bash %v", command)
 	}),
-	NewDefaultTool("Glob", []string{}, func(input map[string]any) string {
+	NewDefaultTool("glob", []string{"Glob"}, func(input map[string]any) string {
 		pattern := input["pattern"]
-		return fmt.Sprintf("Glob %v", pattern)
+		return fmt.Sprintf("glob %v", pattern)
 	}),
-	NewDefaultTool("Grep", []string{}, func(input map[string]any) string {
+	NewDefaultTool("grep", []string{"Grep"}, func(input map[string]any) string {
 		pattern := input["pattern"]
 		path := input["path"]
-		return fmt.Sprintf("Grep %v in %v", pattern, path)
+		return fmt.Sprintf("grep %v in %v", pattern, path)
 	}),
-	NewDefaultTool("LS", []string{}, func(input map[string]any) string {
+	NewDefaultTool("list_directory", []string{"LS"}, func(input map[string]any) string {
 		path := input["path"]
-		return fmt.Sprintf("LS %v", path)
+		return fmt.Sprintf("list_directory %v", path)
 	}),
 	NewDefaultTool("web_fetch", []string{"fetch"}, func(input map[string]any) string {
 		url := input["url"]
 		return fmt.Sprintf("WebFetch %v", url)
 	}),
-	NewDefaultTool("TodoRead", []string{}, func(input map[string]any) string {
-		return "TodoRead"
+	NewDefaultTool("task_list", []string{"TodoRead"}, func(input map[string]any) string {
+		return "task_list"
 	}),
-	NewDefaultTool("todo_write", []string{}, func(input map[string]any) string {
+	NewDefaultTool("task_update", []string{"todo_write", "TodoWrite"}, func(input map[string]any) string {
 		content := input["content"]
-		return fmt.Sprintf("TodoWrite %v", content)
+		if content == nil {
+			content = input["tasks"]
+		}
+		return fmt.Sprintf("task_update %v", content)
 	}),
 }
 

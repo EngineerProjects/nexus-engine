@@ -22,11 +22,20 @@ func (o *Orchestrator) executeConcurrentBatch(
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
+					err := fmt.Errorf("tool panic: %v", r)
 					outcomes[localIdx] = toolExecutionOutcome{
 						ToolUse: prepared.toolUse,
 						Index:   prepared.index,
-						Result:  tool.NewErrorResult(fmt.Errorf("tool panic: %v", r)),
+						Result:  tool.NewErrorResult(err),
 					}
+					// executePreparedTool normally emits its own terminal
+					// progress event (completed/failed) - a panic skips
+					// straight past that, so without this the frontend's
+					// last-seen progress for this tool stays whatever
+					// intermediate stage it was on ("checking permissions",
+					// "running", ...) forever, since nothing ever tells it
+					// the tool call is over.
+					o.emitProgress(req, failedProgress(prepared.toolUse, err, nil))
 				}
 			}()
 			outcomes[localIdx] = o.executePreparedTool(ctx, prepared, req, toolCtx)

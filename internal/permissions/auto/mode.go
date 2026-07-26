@@ -46,6 +46,15 @@ var DefaultModeConfig = &ModeConfig{
 // PowerShell tool name constant.
 var POWERSHELL_TOOL_NAME = "powershell"
 
+// RequestPermissionsToolName is the name of the tool the model calls to
+// explicitly escalate beyond its current authorization (see
+// internal/tools/special/request_permissions). It must never be routed
+// back through the classifier below: the classifier's own block
+// categories (privilege escalation, filesystem access) would otherwise
+// deny the very request whose entire purpose is asking a human, trapping
+// the session with no way to ever reach a real approval prompt.
+const RequestPermissionsToolName = "request_permissions"
+
 // SafeToolNames is the allowlist of tool names that are safe and don't need
 // classifier checking. These are read-only tools or tools that only affect
 // internal metadata and don't modify the filesystem or system state.
@@ -174,6 +183,30 @@ func (m *Mode) Classify(ctx context.Context, pctx *ClassifierContext) (types.Per
 	// Initialize denial tracking if not provided
 	if pctx.DenialTracking == nil {
 		pctx.DenialTracking = &types.DenialTrackingState{}
+	}
+
+	// Fast path -1: request_permissions always reaches a human, never the
+	// classifier. This tool exists specifically so the model can escalate
+	// when it hits a block it believes is wrong for the current task; if the
+	// classifier gets to re-judge it, its own "privilege operations"/"file
+	// access" categories deny it identically to the original action, and the
+	// escalation path silently dead-ends instead of ever asking the user.
+	if pctx.ToolName == RequestPermissionsToolName {
+		if pctx.ShouldAvoidPermissionPrompts {
+			return types.DenyWithDecisionReason(
+				"request_permissions requires interactive approval",
+				&types.PermissionDecisionReason{
+					Type:   types.PermissionDecisionReasonAsyncAgent,
+					Source: "request_permissions",
+					Reason: "request_permissions requires interactive approval and permission prompts are not available in this context",
+				},
+			), nil
+		}
+		return types.AskWithDecisionReason("explicit permission escalation requested", &types.PermissionDecisionReason{
+			Type:   types.PermissionDecisionReasonMode,
+			Source: "request_permissions",
+			Reason: "explicit permission escalation requested",
+		}), nil
 	}
 
 	// Fast path 0: PowerShell special handling

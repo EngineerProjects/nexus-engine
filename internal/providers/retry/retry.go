@@ -3,6 +3,7 @@ package retry
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -347,7 +348,7 @@ func CalculateHTTPBackoff(config types.RetryConfig, attempt int) time.Duration {
 		exponentialDelay = float64(maxBackoff)
 	}
 
-	jitterFactor := 0.75 + (float64(time.Now().UnixNano()%1000) / 1000.0 * 0.5)
+	jitterFactor := 0.75 + (rand.Float64() * 0.5)
 	jitteredDelay := exponentialDelay * jitterFactor
 	if jitteredDelay < float64(initial) {
 		jitteredDelay = float64(initial)

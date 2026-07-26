@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/KPO-Tech/seshat/internal/tools/schema"
@@ -215,10 +216,26 @@ func NewTextResult(content string) CallResult {
 	}
 }
 
-// NewJSONResult creates a new JSON result
+// NewJSONResult creates a new JSON result. Content defaults to the JSON
+// encoding of data - callers that want a human-readable summary instead
+// (most do, for the model and for chat display) set .Content themselves
+// right after calling this. Tools that don't (e.g. grep, list_directory,
+// get_file_metadata as of this writing) used to ship an empty Content,
+// which every consumer downstream (tool.progress metadata, persisted
+// messages, the done payload's tool_results) treats differently when
+// empty - one silently omits it, one falls back to a generic "Tool X
+// completed" string, one used to fall back to Go's %v-formatted Data dump.
+// Defaulting here means there is always at least valid JSON to fall back
+// to, for the model and for any frontend renderer, regardless of which of
+// those paths a given tool call happens to be read through.
 func NewJSONResult(data any) CallResult {
+	content := ""
+	if encoded, err := json.Marshal(data); err == nil {
+		content = string(encoded)
+	}
 	return CallResult{
 		ContentType: ContentTypeJSON,
+		Content:     content,
 		Data:        data,
 	}
 }

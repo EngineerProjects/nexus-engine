@@ -451,10 +451,12 @@ func TestAdvancedRetryJitter(t *testing.T) {
 
 	client.SetRetryConfig(retryConfig)
 
-	// Collect multiple backoff values to check jitter
+	// Collect multiple backoff values for the same non-capped attempt to check
+	// jitter. Using attempts 1..100 mostly exercises the MaxBackoff cap, which
+	// legitimately collapses the output into only a few unique values.
 	backoffs := make([]time.Duration, 100)
-	for i := 1; i <= 100; i++ {
-		backoffs[i-1] = client.calculateAdvancedBackoff(i)
+	for i := range backoffs {
+		backoffs[i] = client.calculateAdvancedBackoff(2)
 	}
 
 	// Check that we have variation (jitter is working)

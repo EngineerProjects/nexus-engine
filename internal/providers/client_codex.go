@@ -42,9 +42,13 @@ func (c *Client) buildCodexRequestBody(req types.APIRequest) (io.Reader, error) 
 	}
 	body["instructions"] = systemPrompt
 
-	if req.Temperature != nil {
-		body["temperature"] = *req.Temperature
-	}
+	// Every model behind this provider (gpt-5.6-sol, gpt-5.5, gpt-5.4-mini —
+	// see registry.go's APIProviderCodex entry) is a reasoning model served
+	// through the ChatGPT-account Responses API, which rejects `temperature`
+	// outright ("Unsupported parameter: temperature") rather than just
+	// ignoring it. Silently dropping it here regardless of what callers set
+	// is scoped to this provider specifically — some other providers'
+	// models do accept it.
 	if len(req.Tools) > 0 {
 		body["tools"] = codexTools(req.Tools)
 	}
@@ -165,6 +169,21 @@ func (c *Client) createCodexStreamResult(ctx context.Context, req types.APIReque
 		return nil, c.handleErrorResponse(resp, nil)
 	}
 
+	return parseCodexSSEStream(ctx, resp.Body, req.Model, onChunk)
+}
+
+// parseCodexSSEStream reads a Codex Responses API body (the "event: ...\ndata:
+// {...}" SSE shape) to completion and aggregates it into a single
+// APIStreamResult. Shared by createCodexStreamResult above (onChunk fires as
+// events arrive, for real streaming) and codexAdapter.decodeResponse below
+// (onChunk is nil - emitStreamChunk no-ops on a nil callback). Codex's
+// Responses API answers in this SSE shape unconditionally (see
+// buildCodexRequestBody's hardcoded "stream": true and CreateMessage's own
+// "Z.ai/GLM and Codex only support streaming" branch) - there is no separate
+// plain-JSON wire format for non-streaming callers to decode, so
+// non-streaming callers still need this same SSE reader, just without a
+// live callback.
+func parseCodexSSEStream(ctx context.Context, body io.Reader, model types.ModelIdentifier, onChunk func(types.APIResponseChunk)) (*types.APIStreamResult, error) {
 	var text strings.Builder
 	toolCalls := make(map[string]*openAIStreamToolCallState) // keyed by call_id
 	callOrder := make([]string, 0)
@@ -172,7 +191,7 @@ func (c *Client) createCodexStreamResult(ctx context.Context, req types.APIReque
 	usage := types.TokenUsage{}
 	responseID := "codex-stream"
 
-	reader := bufio.NewReader(resp.Body)
+	reader := bufio.NewReader(body)
 streamLoop:
 	for {
 		select {
@@ -322,7 +341,7 @@ streamLoop:
 				}
 				emitStreamChunk(onChunk, stopChunk)
 				collected = append(collected, stopChunk)
-				return buildCodexStreamResult(req.Model, responseID, text.String(), toolCalls, callOrder, usage, collected)
+				return buildCodexStreamResult(model, responseID, text.String(), toolCalls, callOrder, usage, collected)
 
 			case "response.failed":
 				if event.Response != nil && event.Response.Error != nil {
@@ -340,12 +359,12 @@ streamLoop:
 				}
 				emitStreamChunk(onChunk, stopChunk)
 				collected = append(collected, stopChunk)
-				return buildCodexStreamResult(req.Model, responseID, text.String(), toolCalls, callOrder, usage, collected)
+				return buildCodexStreamResult(model, responseID, text.String(), toolCalls, callOrder, usage, collected)
 			}
 		}
 	}
 	// Reached after EOF break — return accumulated state.
-	return buildCodexStreamResult(req.Model, responseID, text.String(), toolCalls, callOrder, usage, collected)
+	return buildCodexStreamResult(model, responseID, text.String(), toolCalls, callOrder, usage, collected)
 }
 
 func buildCodexStreamResult(

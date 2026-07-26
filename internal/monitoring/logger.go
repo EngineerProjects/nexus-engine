@@ -107,6 +107,22 @@ func NewLoggerWithConfig(config *LoggerConfig) *Logger {
 	}
 }
 
+// Close releases the logger output if it owns a closable resource.
+func (l *Logger) Close() error {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	if closer, ok := l.output.(io.Closer); ok {
+		switch l.output {
+		case os.Stdout, os.Stderr:
+			return nil
+		default:
+			return closer.Close()
+		}
+	}
+	return nil
+}
+
 // SetLevel updates minimum log level
 func (l *Logger) SetLevel(level LogLevel) {
 	l.mu.Lock()

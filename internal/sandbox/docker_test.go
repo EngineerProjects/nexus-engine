@@ -456,10 +456,18 @@ func TestDockerExecutorReapsOrphanFromPreviousProcess(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = ex.Close() })
 
-	inspectCtx, cancel2 := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel2()
-	if err := exec.CommandContext(inspectCtx, "docker", "inspect", orphanName).Run(); err == nil {
-		t.Fatal("expected the orphaned container to be reaped by newDockerExecutor, but docker inspect still succeeds")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		inspectCtx, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+		err := exec.CommandContext(inspectCtx, "docker", "inspect", orphanName).Run()
+		cancel2()
+		if err != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("expected the orphaned container to be reaped by newDockerExecutor, but docker inspect still succeeds")
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 }
 

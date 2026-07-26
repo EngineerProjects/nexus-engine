@@ -260,6 +260,15 @@ func mergeToolExecutionResults(
 		messages = append(messages, batch...)
 	}
 
+	finalToolContext := remaining.FinalToolContext
+	if len(remaining.Results) == 0 {
+		for idx := 0; idx < total; idx++ {
+			if result, ok := streamed[idx]; ok {
+				finalToolContext = result.FinalToolContext
+			}
+		}
+	}
+
 	return execution.ExecuteResult{
 		Results:          results,
 		Messages:         messages,
@@ -267,7 +276,7 @@ func mergeToolExecutionResults(
 		Errors:           errors,
 		TotalDuration:    remaining.TotalDuration,
 		ProgressUpdates:  progress,
-		FinalToolContext: remaining.FinalToolContext,
+		FinalToolContext: finalToolContext,
 	}
 }
 
@@ -342,6 +351,13 @@ func buildToolResultMessages(toolUse types.ToolUseContent, result tool.CallResul
 func resultContent(result tool.CallResult) string {
 	if result.GetContent() != "" {
 		return result.GetContent()
+	}
+	// Defense in depth for a CallResult built without NewJSONResult/
+	// NewTextResult (which both now always populate Content) - JSON is
+	// still parseable by the model and any frontend renderer, unlike Go's
+	// %v-formatted struct/map dump this used to fall back to.
+	if encoded, err := json.Marshal(result.GetData()); err == nil {
+		return string(encoded)
 	}
 	return fmt.Sprintf("%v", result.GetData())
 }

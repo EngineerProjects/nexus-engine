@@ -116,7 +116,7 @@ Your plan will be saved to: %s
 
 DO NOT edit or create source files during plan mode — this is a read-only exploration and planning phase.
 Once you call exit_plan_mode the plan will be presented to the user for approval.
-After approval you will receive the plan back and can start implementation with todo_write.`, execution.GetDisplayPath(planFilePath))
+After approval you will receive the plan back and can start implementation with task_create/task_update.`, execution.GetDisplayPath(planFilePath))
 
 	result := tool.NewTextResult(instructions)
 	result.ContextModifier = func(ctx tool.ToolUseContext) tool.ToolUseContext {
@@ -236,7 +236,7 @@ If the user explicitly asks you to enter plan mode, call ` + "`enter_plan_mode`"
 
 ## What to do in plan mode
 
-1. Explore the relevant code using read-only tools (Read, Bash with ls/cat/git log, grep)
+1. Explore the relevant code using read-only tools (` + "`read_file`" + `, ` + "`glob`" + `, ` + "`grep`" + `, and ` + "`bash`" + ` for ls/cat/git log/find)
 2. Clarify ambiguous requirements with ask_user_question if needed
 3. Design a concrete, ordered implementation plan
 4. Call ` + "`submit_plan`" + ` with the full plan content and a short slug

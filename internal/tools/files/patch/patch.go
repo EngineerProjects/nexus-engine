@@ -282,6 +282,9 @@ func (p *Patch) Apply(ctx context.Context, workingDir string, toolCtxWorkingDir 
 	}
 
 	resolvePath := func(raw string) (string, error) {
+		if strings.HasPrefix(raw, "/") && !filepath.IsAbs(raw) {
+			return filepath.Clean(raw), nil
+		}
 		if filepath.IsAbs(raw) {
 			return shared.GetAbsolutePath(raw)
 		}

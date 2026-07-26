@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	dbpkg "github.com/KPO-Tech/seshat/internal/db"
@@ -632,6 +633,9 @@ func TestSQLiteStore_HybridSearch_FilterWithHybrid(t *testing.T) {
 }
 
 func TestHNSWStore_UpsertSearchPersistence(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("hnsw backend is not available on Windows")
+	}
 	dir := t.TempDir()
 	ctx := context.Background()
 
@@ -708,6 +712,9 @@ func TestHNSWStore_UpsertSearchPersistence(t *testing.T) {
 }
 
 func TestHNSWStore_HybridKeywordBlend(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("hnsw backend is not available on Windows")
+	}
 	dir := t.TempDir()
 	ctx := context.Background()
 

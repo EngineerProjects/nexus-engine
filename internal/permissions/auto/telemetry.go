@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"time"
 )
 
 // AutoModeOutcome represents a single classification outcome for telemetry.
@@ -17,15 +16,19 @@ import (
 type AutoModeOutcome struct {
 	Outcome    string         `json:"outcome"`     // Outcome type (success/error/parse_failure)
 	Model      string         `json:"model"`       // Model used for classification
-	DurationMs int64          `json:"duration_ms"` // Time taken for classification
+	DurationMs int64          `json:"duration_ms"` // Elapsed time of the classification call
 	Metadata   map[string]any `json:"metadata"`    // Additional outcome metadata
 }
 
-func LogAutoModeOutcome(outcome string, model string, metadata map[string]any) {
+// durationMs must be the elapsed time of the classification call
+// (time.Since(start).Milliseconds()), not a timestamp - this used to be
+// time.Now().UnixMilli(), which produced a "duration" that was really just
+// "now", off by decades from any real elapsed time.
+func LogAutoModeOutcome(outcome string, model string, durationMs int64, metadata map[string]any) {
 	entry := AutoModeOutcome{
 		Outcome:    outcome,
 		Model:      model,
-		DurationMs: time.Now().UnixMilli(),
+		DurationMs: durationMs,
 		Metadata:   metadata,
 	}
 
@@ -47,23 +50,24 @@ const (
 )
 
 func LogSuccess(model string, durationMs int64) {
-	LogAutoModeOutcome(OutcomeSuccess, model, map[string]any{
-		"duration_ms": durationMs,
-	})
+	LogAutoModeOutcome(OutcomeSuccess, model, durationMs, map[string]any{})
 }
 
+// Currently unreferenced - no call site tracks elapsed time for a parse
+// failure, so 0 here isn't a real duration either. Left as 0 rather than
+// invented, same reasoning as LogError below.
 func LogParseFailure(model string, failureKind string) {
-	LogAutoModeOutcome(OutcomeParseFailure, model, map[string]any{
+	LogAutoModeOutcome(OutcomeParseFailure, model, 0, map[string]any{
 		"failure_kind": failureKind,
 	})
 }
 
-func LogError(model string, err error, tooLong bool) {
+func LogError(model string, err error, tooLong bool, durationMs int64) {
 	metadata := map[string]any{
 		"error": fmt.Sprintf("%v", err),
 	}
 	if tooLong {
 		metadata["transcript_too_long"] = true
 	}
-	LogAutoModeOutcome(OutcomeError, model, metadata)
+	LogAutoModeOutcome(OutcomeError, model, durationMs, metadata)
 }

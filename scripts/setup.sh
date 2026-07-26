@@ -89,11 +89,33 @@ else
                 fail "Cannot detect package manager. Install ripgrep manually:\n  https://github.com/BurntSushi/ripgrep#installation"
             fi
             ;;
+        MSYS*|MINGW*|CYGWIN*)
+            # Git Bash on Windows - `uname -s` reports something like
+            # MSYS_NT-10.0-xxxxx / MINGW64_NT-... here, not a real POSIX
+            # distro, so apt/brew/etc never apply. Go through the same
+            # Windows package managers setup.ps1 uses.
+            if command -v winget.exe &>/dev/null; then
+                winget.exe install --id BurntSushi.ripgrep.MSVC --silent --accept-source-agreements --accept-package-agreements
+            elif command -v scoop &>/dev/null; then
+                scoop install ripgrep
+            elif command -v choco.exe &>/dev/null; then
+                choco.exe install ripgrep -y
+            else
+                warn "No winget/scoop/choco found. Install ripgrep manually: https://github.com/BurntSushi/ripgrep/releases (or run scripts\\setup.ps1 from PowerShell instead)."
+            fi
+            ;;
         *)
             warn "Unknown OS '$OS'. Install ripgrep manually: https://github.com/BurntSushi/ripgrep#installation"
             ;;
     esac
-    ok "ripgrep installed"
+    # Re-check rather than assuming the branch above succeeded - a warn-only
+    # fallback (unknown OS, no package manager found) used to still print
+    # "ripgrep installed" unconditionally right after it, which was wrong.
+    if command -v rg &>/dev/null; then
+        ok "ripgrep installed"
+    else
+        warn "ripgrep still not on PATH. If it just installed via winget, open a new shell (PATH needs a refresh) and re-run setup; otherwise install it manually."
+    fi
 fi
 
 # ── 3. uv ─────────────────────────────────────────────────────────────────────

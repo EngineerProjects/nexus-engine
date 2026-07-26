@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/KPO-Tech/seshat/internal/sandbox"
 	"github.com/KPO-Tech/seshat/internal/types"
 	"github.com/KPO-Tech/seshat/pkg/runtimepath"
 )
@@ -455,5 +456,176 @@ func TestResolverSessionAutoApprovalPersistence(t *testing.T) {
 	}
 	if result.DecisionReason == nil || result.DecisionReason.Source != "session" {
 		t.Fatalf("expected session decision reason, got %#v", result.DecisionReason)
+	}
+}
+
+// writeFileRequest builds a permission request shaped the way write.go's own
+// sandbox.ResolveToolPermission call actually produces one - the thing a
+// request_permissions grant needs to be findable by, not the tool-name/input
+// shape request_permissions itself uses.
+func writeFileRequest(path, toolUseID string, sessionID types.SessionID, turnID types.TurnID) types.ToolPermissionRequest {
+	return types.GlobalToolPermissionRequest(
+		"write_file",
+		map[string]any{"file_path": path, "content": "x"},
+		toolUseID,
+		sessionID,
+		turnID,
+		types.PermissionModeOnRequest,
+		"",
+		map[string]any{
+			sandbox.MetadataRequestKey: sandbox.PermissionRequest{
+				ToolName: "write_file",
+				Access:   sandbox.AccessWrite,
+				Paths:    []string{path},
+				Scope:    sandbox.ApprovalScopeToolCall,
+			},
+		},
+	)
+}
+
+func requestPermissionsInput(path, access string) map[string]any {
+	return map[string]any{
+		"reason": "test",
+		"permissions": map[string]any{
+			"filesystem": map[string]any{
+				"paths":  []any{path},
+				"access": []any{access},
+			},
+		},
+	}
+}
+
+func newAskEngine(t *testing.T, toolNames ...string) *Engine {
+	t.Helper()
+	engine := NewEngine()
+	for i, name := range toolNames {
+		if err := engine.AddRule(PermissionRule{
+			Value:    PermissionRuleValue{ToolName: name},
+			Behavior: types.PermissionBehaviorAsk,
+			Priority: 100,
+			Reason:   "requires approval in this test",
+			Source:   types.PermissionSourceStatic,
+		}); err != nil {
+			t.Fatalf("failed to add rule %d for %s: %v", i, name, err)
+		}
+	}
+	return engine
+}
+
+// TestRequestPermissionsGrantCoversDownstreamToolSameTurn verifies the actual
+// point of request_permissions: an approved grant must be findable by the
+// operation it was requested FOR (write_file), not just by a repeat
+// request_permissions call asking for the same thing. Default scope="turn".
+func TestRequestPermissionsGrantCoversDownstreamToolSameTurn(t *testing.T) {
+	t.Setenv("SESHAT_RUNTIME_ROOT", t.TempDir())
+	engine := newAskEngine(t, "request_permissions", "write_file")
+	integrator := NewIntegrator(engine)
+	promptCalls := 0
+	integrator.SetPromptFn(func(ctx context.Context, request types.PromptRequest) (types.PromptResponse, error) {
+		promptCalls++
+		return types.PromptResponse{Value: true}, nil
+	})
+
+	resolver := integrator.Resolver("session-1", "turn-1", types.PermissionModeOnRequest)
+
+	grant := resolver.ResolvePermission(context.Background(), types.GlobalToolPermissionRequest(
+		"request_permissions", requestPermissionsInput("/workspace/out.py", "write"), "tool-1",
+		"session-1", "turn-1", types.PermissionModeOnRequest, "", map[string]any{"grant_scope": "turn"},
+	))
+	if promptCalls != 1 || !grant.IsAllowed() {
+		t.Fatalf("expected the request_permissions call itself to prompt once and be allowed, got calls=%d result=%#v", promptCalls, grant)
+	}
+
+	write := resolver.ResolvePermission(context.Background(), writeFileRequest("/workspace/out.py", "tool-2", "session-1", "turn-1"))
+	if promptCalls != 1 {
+		t.Fatalf("expected write_file to be auto-approved from the just-granted turn-scoped escalation without prompting, got %d calls total", promptCalls)
+	}
+	if !write.IsAllowed() {
+		t.Fatalf("expected write_file to be allowed, got %#v", write)
+	}
+
+	// Different turn: the turn-scoped grant must not carry over.
+	writeNextTurn := resolver.ResolvePermission(context.Background(), writeFileRequest("/workspace/out.py", "tool-3", "session-1", "turn-2"))
+	if promptCalls != 2 {
+		t.Fatalf("expected write_file in a different turn to prompt again (turn-scoped grant expired), got %d calls total", promptCalls)
+	}
+	if !writeNextTurn.IsAllowed() {
+		t.Fatalf("expected write_file to be allowed after re-prompting, got %#v", writeNextTurn)
+	}
+}
+
+// TestRequestPermissionsSessionScopeGrantCoversDownstreamToolAcrossTurns
+// verifies scope="session" grants survive across turns (and, unlike the
+// turn-scoped case, don't need to be re-approved next turn).
+func TestRequestPermissionsSessionScopeGrantCoversDownstreamToolAcrossTurns(t *testing.T) {
+	t.Setenv("SESHAT_RUNTIME_ROOT", t.TempDir())
+	engine := newAskEngine(t, "request_permissions", "write_file")
+	integrator := NewIntegrator(engine)
+	promptCalls := 0
+	integrator.SetPromptFn(func(ctx context.Context, request types.PromptRequest) (types.PromptResponse, error) {
+		promptCalls++
+		return types.PromptResponse{Value: true}, nil
+	})
+
+	resolver := integrator.Resolver("session-1", "turn-1", types.PermissionModeOnRequest)
+
+	grant := resolver.ResolvePermission(context.Background(), types.GlobalToolPermissionRequest(
+		"request_permissions", requestPermissionsInput("/workspace/out.py", "write"), "tool-1",
+		"session-1", "turn-1", types.PermissionModeOnRequest, "", map[string]any{"grant_scope": "session"},
+	))
+	if promptCalls != 1 || !grant.IsAllowed() {
+		t.Fatalf("expected the request_permissions call itself to prompt once and be allowed, got calls=%d result=%#v", promptCalls, grant)
+	}
+
+	// A later turn in the same session must still find the grant.
+	write := resolver.ResolvePermission(context.Background(), writeFileRequest("/workspace/out.py", "tool-2", "session-1", "turn-7"))
+	if promptCalls != 1 {
+		t.Fatalf("expected write_file in a later turn to be auto-approved from the session-scoped grant, got %d calls total", promptCalls)
+	}
+	if !write.IsAllowed() {
+		t.Fatalf("expected write_file to be allowed, got %#v", write)
+	}
+
+	// A different path never granted must still prompt.
+	other := resolver.ResolvePermission(context.Background(), writeFileRequest("/workspace/other.py", "tool-3", "session-1", "turn-7"))
+	if promptCalls != 2 {
+		t.Fatalf("expected write_file for an ungranted path to prompt, got %d calls total", promptCalls)
+	}
+	if !other.IsAllowed() {
+		t.Fatalf("expected write_file to be allowed after re-prompting, got %#v", other)
+	}
+}
+
+// TestRequestPermissionsGrantCoversPathsUnderGrantedDirectory verifies a
+// grant declared on a directory covers files underneath it, not only that
+// exact path - the natural way an agent would request "let me write into
+// this workspace" once instead of once per file.
+func TestRequestPermissionsGrantCoversPathsUnderGrantedDirectory(t *testing.T) {
+	t.Setenv("SESHAT_RUNTIME_ROOT", t.TempDir())
+	engine := newAskEngine(t, "request_permissions", "write_file")
+	integrator := NewIntegrator(engine)
+	promptCalls := 0
+	integrator.SetPromptFn(func(ctx context.Context, request types.PromptRequest) (types.PromptResponse, error) {
+		promptCalls++
+		return types.PromptResponse{Value: true}, nil
+	})
+
+	resolver := integrator.Resolver("session-1", "turn-1", types.PermissionModeOnRequest)
+
+	grant := resolver.ResolvePermission(context.Background(), types.GlobalToolPermissionRequest(
+		"request_permissions", requestPermissionsInput(filepath.Clean("/workspace/artifacts"), "write"), "tool-1",
+		"session-1", "turn-1", types.PermissionModeOnRequest, "", map[string]any{"grant_scope": "turn"},
+	))
+	if promptCalls != 1 || !grant.IsAllowed() {
+		t.Fatalf("expected the request_permissions call itself to prompt once and be allowed, got calls=%d result=%#v", promptCalls, grant)
+	}
+
+	nested := filepath.Join("/workspace/artifacts", "sub", "out.py")
+	write := resolver.ResolvePermission(context.Background(), writeFileRequest(nested, "tool-2", "session-1", "turn-1"))
+	if promptCalls != 1 {
+		t.Fatalf("expected write_file under the granted directory to be auto-approved, got %d calls total", promptCalls)
+	}
+	if !write.IsAllowed() {
+		t.Fatalf("expected write_file to be allowed, got %#v", write)
 	}
 }

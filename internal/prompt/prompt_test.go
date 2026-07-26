@@ -2,11 +2,14 @@ package prompt
 
 import (
 	"context"
+	"regexp"
+	"sort"
+	"strings"
+	"testing"
+
 	tool "github.com/KPO-Tech/seshat/internal/tools/contract"
 	"github.com/KPO-Tech/seshat/internal/tools/schema"
 	"github.com/KPO-Tech/seshat/internal/types"
-	"strings"
-	"testing"
 )
 
 // --- from builder_test.go ---
@@ -454,6 +457,99 @@ func TestToolHintsNilDoesNotBreakToolDefinitions(t *testing.T) {
 	}
 	if defs[0].Description != "Read a file." {
 		t.Errorf("expected unmodified description, got %q", defs[0].Description)
+	}
+}
+
+func TestSeshatCorePromptMentionsExistingToolNames(t *testing.T) {
+	knownTools := map[string]bool{}
+	for _, name := range []string{
+		"agent",
+		"ask_user_question",
+		"bash",
+		"browser_click",
+		"browser_extract",
+		"browser_list_downloads",
+		"browser_navigate",
+		"browser_network_list",
+		"browser_open",
+		"browser_press",
+		"browser_screenshot",
+		"browser_scroll",
+		"browser_select_page",
+		"browser_snapshot",
+		"browser_type",
+		"close_agent",
+		"edit_file",
+		"enter_plan_mode",
+		"exit_plan_mode",
+		"glob",
+		"grep",
+		"read_file",
+		"request_permissions",
+		"send_agent_message",
+		"spawn_agent",
+		"submit_plan",
+		"task_create",
+		"task_get",
+		"task_list",
+		"task_stop",
+		"task_update",
+		"tool_search",
+		"wait_agent",
+		"web_fetch",
+		"web_search",
+		"write_file",
+	} {
+		knownTools[name] = true
+	}
+
+	allowedNonTool := map[string]bool{
+		"agent_id":          true,
+		"browse":            true,
+		"explore":           true,
+		"general-purpose":   true,
+		"plan":              true,
+		"run_in_background": true,
+		"verify":            true,
+	}
+
+	re := regexp.MustCompile("`([^`]+)`")
+	matches := re.FindAllStringSubmatch(SeshatCoreStablePrompt(), -1)
+	var unknown []string
+	seen := map[string]bool{}
+	for _, match := range matches {
+		name := strings.TrimSpace(match[1])
+		if name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		if strings.Contains(name, ":") {
+			continue
+		}
+		if strings.ContainsAny(name, "/.") {
+			continue
+		}
+		if strings.HasSuffix(name, "_*") {
+			prefix := strings.TrimSuffix(name, "*")
+			found := false
+			for toolName := range knownTools {
+				if strings.HasPrefix(toolName, prefix) {
+					found = true
+					break
+				}
+			}
+			if found {
+				continue
+			}
+		}
+		if knownTools[name] || allowedNonTool[name] {
+			continue
+		}
+		unknown = append(unknown, name)
+	}
+	sort.Strings(unknown)
+	if len(unknown) > 0 {
+		t.Fatalf("stable prompt mentions unknown tool-like names: %v", unknown)
 	}
 }
 

@@ -317,6 +317,56 @@ func TestMode_Classify_PowerShell_Interactive(t *testing.T) {
 	}
 }
 
+func TestMode_Classify_RequestPermissions_Headless(t *testing.T) {
+	mode := NewMode(nil, &ModeConfig{FailClosed: true})
+
+	ctx := context.Background()
+	pctx := &ClassifierContext{
+		ToolName:                     "request_permissions",
+		ToolInput:                    map[string]any{"reason": "need to write build output"},
+		ShouldAvoidPermissionPrompts: true, // headless mode
+	}
+
+	result, err := mode.Classify(ctx, pctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Behavior != types.PermissionBehaviorDeny {
+		t.Errorf("expected Deny in headless mode, got %v", result.Behavior)
+	}
+	if result.DecisionReason == nil || result.DecisionReason.Source != "request_permissions" {
+		t.Errorf("expected request_permissions decision reason")
+	}
+}
+
+// This is the regression test for the self-defeating loop: request_permissions
+// exists so the model can escalate past a classifier block, so it must never
+// be re-judged by that same classifier (which has no API client configured
+// here — if it were reached, it would fail closed to Deny, not Ask).
+func TestMode_Classify_RequestPermissions_NeverReachesClassifier(t *testing.T) {
+	mode := NewMode(nil, &ModeConfig{FailClosed: true})
+
+	ctx := context.Background()
+	pctx := &ClassifierContext{
+		ToolName:                     "request_permissions",
+		ToolInput:                    map[string]any{"reason": "need to write build output"},
+		ShouldAvoidPermissionPrompts: false, // interactive mode
+	}
+
+	result, err := mode.Classify(ctx, pctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.Behavior != types.PermissionBehaviorAsk {
+		t.Errorf("expected Ask in interactive mode so a real approval prompt is shown, got %v", result.Behavior)
+	}
+	if result.DecisionReason == nil || result.DecisionReason.Source != "request_permissions" {
+		t.Errorf("expected request_permissions decision reason, got %+v", result.DecisionReason)
+	}
+}
+
 func TestMode_Classify_SafeTool_Allowed(t *testing.T) {
 	mode := NewMode(nil, &ModeConfig{FailClosed: true})
 
