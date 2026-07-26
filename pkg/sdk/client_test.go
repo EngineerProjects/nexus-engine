@@ -519,6 +519,21 @@ func TestAskCompletesOpenAIMonoRun(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "text/event-stream")
+		if payload["stream"] == false {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "chatcmpl-title",
+				"choices": []map[string]any{
+					{
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "Check Both",
+						},
+					},
+				},
+			})
+			return
+		}
 		switch requests {
 		case 1:
 			if !sdkProviderPayloadHasTool(payload, "sdk_stub") {
@@ -653,6 +668,21 @@ func TestAskStreamsResponseChunksToHost(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "text/event-stream")
+		if payload["stream"] == false {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"id": "chatcmpl-title",
+				"choices": []map[string]any{
+					{
+						"message": map[string]any{
+							"role":    "assistant",
+							"content": "Check Both",
+						},
+					},
+				},
+			})
+			return
+		}
 		switch requests {
 		case 1:
 			sdkWriteStreamEvents(t, w, []map[string]any{
