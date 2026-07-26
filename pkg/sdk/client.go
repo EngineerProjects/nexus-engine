@@ -361,6 +361,14 @@ func (c *Client) ListSessions() ([]*SessionInfo, error) {
 	return c.store.GetAllSessionsInfo()
 }
 
+// SearchTranscriptsByContent lists sessions whose stored transcript contains needle.
+func (c *Client) SearchTranscriptsByContent(needle string, limit int) ([]SessionID, error) {
+	if c.store == nil {
+		return nil, fmt.Errorf("session persistence not enabled")
+	}
+	return c.store.SearchTranscriptsByContent(needle, limit)
+}
+
 // DeleteSession deletes a session and all associated artifacts from storage.
 func (c *Client) DeleteSession(sessionID SessionID) error {
 	if c.store == nil {

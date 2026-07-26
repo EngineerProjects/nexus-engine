@@ -185,6 +185,14 @@ func (s *Store) LoadTranscript(sessionID types.SessionID) ([]types.TranscriptEnt
 	return s.backend.LoadTranscript(sessionID)
 }
 
+// SearchTranscriptsByContent returns session IDs whose transcript contains needle.
+func (s *Store) SearchTranscriptsByContent(needle string, limit int) ([]types.SessionID, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return s.backend.SearchTranscriptsByContent(needle, limit)
+}
+
 // SaveCheckpoint saves a checkpoint for recovery
 func (s *Store) SaveCheckpoint(sessionID types.SessionID, checkpoint *Checkpoint) error {
 	s.mu.Lock()
