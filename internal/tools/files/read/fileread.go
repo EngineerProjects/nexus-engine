@@ -460,7 +460,7 @@ fallback:
 			if ctx.Err() != nil {
 				return tool.NewErrorResult(fmt.Errorf("file read cancelled")), nil
 			}
-			return tool.NewErrorResult(fmt.Errorf("failed to extract PDF pages: %w", err)), nil
+			return t.readWholePDFFallback(ctx, filePath, fileInfo, fmt.Sprintf("Could not extract requested PDF pages (%v). Falling back to the full PDF.", err))
 		}
 		result := &FileReadResult{
 			Type: FileTypePDFExtracted,
@@ -499,6 +499,35 @@ fallback:
 		},
 	}
 	return tool.NewTextResult(t.formatPDFResult(result)), nil
+}
+
+func (t *Tool) readWholePDFFallback(ctx context.Context, filePath string, fileInfo os.FileInfo, warning string) (tool.CallResult, error) {
+	select {
+	case <-ctx.Done():
+		return tool.NewErrorResult(fmt.Errorf("file read cancelled")), nil
+	default:
+	}
+	pageCount, err := GetPDFPageCount(filePath)
+	if err != nil {
+		return tool.NewErrorResult(fmt.Errorf("failed to get PDF page count after page extraction failed: %w", err)), nil
+	}
+	if pageCount > PDFATMentionInlineThreshold {
+		return tool.NewErrorResult(fmt.Errorf("%s The PDF has %d pages, which is too many to read at once. Try converting it with docling-serve or use a smaller page range.", warning, pageCount)), nil
+	}
+	pdfResult, err := ReadPDF(filePath)
+	if err != nil {
+		return tool.NewErrorResult(fmt.Errorf("failed to read PDF after page extraction failed: %w", err)), nil
+	}
+	result := &FileReadResult{
+		Type: FileTypePDF,
+		PDF: &PDFFileResult{
+			FilePath:     filePath,
+			Base64:       pdfResult.Base64,
+			OriginalSize: fileInfo.Size(),
+			PageCount:    pageCount,
+		},
+	}
+	return tool.NewTextResult(warning + "\n\n" + t.formatPDFResult(result)), nil
 }
 
 // readDoclingFile converts a docling-supported binary file (DOCX, PPTX, XLSX, WAV, MP3)
