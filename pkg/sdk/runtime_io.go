@@ -19,9 +19,9 @@ type SessionBackend interface {
 	AppendTranscriptEntries(sessionID SessionID, entries []TranscriptEntry) error
 	ReplaceTranscript(sessionID SessionID, entries []TranscriptEntry) error
 	LoadTranscript(sessionID SessionID) ([]TranscriptEntry, error)
+	SearchTranscriptsByContent(needle string, limit int) ([]SessionID, error)
 	SaveCheckpoint(sessionID SessionID, checkpoint *Checkpoint) error
 	LoadCheckpoint(sessionID SessionID) (*Checkpoint, error)
-	SearchTranscriptsByContent(needle string, limit int) ([]SessionID, error)
 }
 
 // SessionStore is the SDK-owned contract for persisted runtime sessions.
@@ -35,6 +35,7 @@ type SessionStore interface {
 	AppendTranscriptEntries(sessionID SessionID, entries []TranscriptEntry) error
 	ReplaceTranscript(sessionID SessionID, entries []TranscriptEntry) error
 	LoadTranscript(sessionID SessionID) ([]TranscriptEntry, error)
+	SearchTranscriptsByContent(needle string, limit int) ([]SessionID, error)
 	SaveCheckpoint(sessionID SessionID, checkpoint *Checkpoint) error
 	LoadCheckpoint(sessionID SessionID) (*Checkpoint, error)
 	LoadCanonicalMessages(sessionID SessionID) ([]Message, error)
