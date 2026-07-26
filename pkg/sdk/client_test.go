@@ -1152,12 +1152,26 @@ func TestAskCompletesOllamaMonoRun(t *testing.T) {
 func TestAskCompletesGeminiMonoRun(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requests++
 		var payload map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
 			t.Fatalf("decode request payload: %v", err)
 		}
 
+		if strings.Contains(r.URL.String(), ":generateContent") {
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"candidates": []map[string]any{
+					{
+						"content": map[string]any{
+							"parts": []map[string]any{{"text": "Check Both"}},
+						},
+					},
+				},
+			})
+			return
+		}
+
+		requests++
 		if !strings.Contains(r.URL.String(), ":streamGenerateContent?alt=sse") {
 			t.Fatalf("expected gemini stream endpoint, got %s", r.URL.String())
 		}
