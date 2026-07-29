@@ -6,7 +6,7 @@ Reference for tool developers who need to persist files produced during agent ex
 
 ## Directory layout
 
-All data lives under `~/.config/seshat-cli/` (or `$NEXUS_RUNTIME_ROOT`).
+All data lives under `~/.config/seshat-cli/` (or `$SESHAT_RUNTIME_ROOT`).
 
 ```
 ~/.config/seshat-cli/

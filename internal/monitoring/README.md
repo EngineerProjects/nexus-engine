@@ -195,7 +195,7 @@ go tool cover -html=coverage.html
 ### 1. Basic Setup
 
 ```go
-import "github.com/EngineerProjects/Nexus_ai/apps/seshat/internal/monitoring"
+import "github.com/EngineerProjects/Seshat_ai/apps/seshat/internal/monitoring"
 
 func main() {
     // Create logger

@@ -58,12 +58,12 @@ OLLAMA_API_KEY=...            # optional, only needed if Ollama requires auth
 ### Runtime configuration
 
 ```bash
-NEXUS_MODEL=anthropic:claude-sonnet-4-6   # default model (provider:model)
-NEXUS_API_KEY=...                          # alternative to provider-specific key
-NEXUS_CWD=/path/to/working/directory      # agent working directory
+SESHAT_MODEL=anthropic:claude-sonnet-4-6   # default model (provider:model)
+SESHAT_API_KEY=...                          # alternative to provider-specific key
+SESHAT_CWD=/path/to/working/directory      # agent working directory
 SESHAT_DB_PATH=/tmp/seshat/seshat.sqlite     # SQLite database path
-NEXUS_DEBUG=true                          # verbose logging
-NEXUS_PROVIDER_BASE_URL=...               # custom provider base URL
+SESHAT_DEBUG=true                          # verbose logging
+SESHAT_PROVIDER_BASE_URL=...               # custom provider base URL
 WEB_SEARCH_PROVIDER=tavily                # web search provider
 ```
 
@@ -81,9 +81,9 @@ go run ./cmd/grpc   # port 50051
 make build-grpc && ./bin/seshat-grpc
 ```
 
-### Service: `nexus.NexusService`
+### Service: `seshat.SeshatService`
 
-Defined in `pkg/grpc/proto/nexus.proto`.
+Defined in `pkg/grpc/proto/seshat.proto`.
 
 | Method | Type | Description |
 |---|---|---|
@@ -109,9 +109,9 @@ Defined in `pkg/grpc/proto/nexus.proto`.
 grpcurl \
   -plaintext \
   -import-path pkg/grpc/proto \
-  -proto nexus.proto \
+  -proto seshat.proto \
   -d '{"prompt":"hello","model":"anthropic:claude-sonnet-4-6"}' \
-  localhost:50051 nexus.NexusService/Query
+  localhost:50051 seshat.SeshatService/Query
 ```
 
 ### QueryStream (server-streaming)
@@ -128,32 +128,32 @@ The stream emits `QueryResponse` messages with an `item_type` field:
 grpcurl \
   -plaintext \
   -import-path pkg/grpc/proto \
-  -proto nexus.proto \
+  -proto seshat.proto \
   -d '{"prompt":"hello","model":"anthropic:claude-sonnet-4-6"}' \
-  localhost:50051 nexus.NexusService/QueryStream
+  localhost:50051 seshat.SeshatService/QueryStream
 ```
 
 ### Other methods
 
 ```bash
 # Health check
-grpcurl -plaintext -import-path pkg/grpc/proto -proto nexus.proto \
-  -d '{}' localhost:50051 nexus.NexusService/HealthCheck
+grpcurl -plaintext -import-path pkg/grpc/proto -proto seshat.proto \
+  -d '{}' localhost:50051 seshat.SeshatService/HealthCheck
 
 # Available models
-grpcurl -plaintext -import-path pkg/grpc/proto -proto nexus.proto \
-  -d '{}' localhost:50051 nexus.NexusService/GetModels
+grpcurl -plaintext -import-path pkg/grpc/proto -proto seshat.proto \
+  -d '{}' localhost:50051 seshat.SeshatService/GetModels
 
 # List skills
-grpcurl -plaintext -import-path pkg/grpc/proto -proto nexus.proto \
-  -d '{}' localhost:50051 nexus.NexusService/ListSkills
+grpcurl -plaintext -import-path pkg/grpc/proto -proto seshat.proto \
+  -d '{}' localhost:50051 seshat.SeshatService/ListSkills
 ```
 
 ---
 
 ## Proto codegen
 
-After any modification to `pkg/grpc/proto/nexus.proto`, regenerate the Go stubs:
+After any modification to `pkg/grpc/proto/seshat.proto`, regenerate the Go stubs:
 
 ```bash
 PATH="$HOME/go/bin:$HOME/.local/bin:$PATH" \
@@ -163,7 +163,7 @@ protoc \
   --go_opt=module=github.com/KPO-Tech/seshat \
   --go-grpc_out=. \
   --go-grpc_opt=module=github.com/KPO-Tech/seshat \
-  pkg/grpc/proto/nexus.proto
+  pkg/grpc/proto/seshat.proto
 ```
 
 Verify:
