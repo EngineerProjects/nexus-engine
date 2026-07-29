@@ -42,7 +42,7 @@ Le répertoire de travail `~/.config/seshat-cli/` est un patchwork de convention
 
 4. **Pas de log par session** — un seul `cli.log` global mélange toutes les sessions ; déboguer une session précise oblige à filtrer manuellement.
 
-5. **Nom de répertoire ambigu** — `seshat-cli` désignait l'outil CLI, mais l'application est maintenant un TUI complet. `nexus-tui` est plus précis et évite les collisions avec le backend (`~/.config/nexus`).
+5. **Nom de répertoire ambigu** — `seshat-cli` désignait l'outil CLI, mais l'application est maintenant un TUI complet. `seshat-tui` est plus précis et évite les collisions avec le backend (`~/.config/seshat`).
 
 ---
 
@@ -52,16 +52,16 @@ Le répertoire de travail `~/.config/seshat-cli/` est un patchwork de convention
 
 | Plateforme | Chemin par défaut            |
 |------------|------------------------------|
-| Linux      | `~/.config/nexus-tui/`       |
-| macOS      | `~/.config/nexus-tui/`       |
-| Windows    | `%APPDATA%\nexus-tui\`       |
+| Linux      | `~/.config/seshat-tui/`       |
+| macOS      | `~/.config/seshat-tui/`       |
+| Windows    | `%APPDATA%\seshat-tui\`       |
 
-La variable d'environnement `NEXUS_RUNTIME_ROOT` continue de prendre la priorité pour les usages avancés.
+La variable d'environnement `SESHAT_RUNTIME_ROOT` continue de prendre la priorité pour les usages avancés.
 
 ### Arborescence cible
 
 ```
-~/.config/nexus-tui/
+~/.config/seshat-tui/
 ├── config.yaml               # configuration utilisateur
 ├── secret.key                # clé AES-256 (mode 0600)
 ├── seshat.db                  # SQLite : metadata sessions, credentials, transcripts
@@ -140,8 +140,8 @@ Ce package est la **seule source de vérité côté application** pour les chemi
 ```go
 package appdir
 
-// Root retourne le répertoire racine de l'application, résolu via NEXUS_RUNTIME_ROOT
-// ou la convention plateforme (Linux/macOS : ~/.config/nexus-tui, Windows : %APPDATA%\nexus-tui).
+// Root retourne le répertoire racine de l'application, résolu via SESHAT_RUNTIME_ROOT
+// ou la convention plateforme (Linux/macOS : ~/.config/seshat-tui, Windows : %APPDATA%\seshat-tui).
 func Root() string
 
 // EnsureAppDirs crée tous les répertoires applicatifs nécessaires au démarrage.
@@ -242,9 +242,9 @@ Cette trajectoire minimise les tokens sans dégrader l'expérience utilisateur n
 
 Les installations existantes gardent leur répertoire `~/.config/seshat-cli/` intact. La migration n'est pas destructive :
 
-1. **Première utilisation** : si `~/.config/nexus-tui/` n'existe pas mais `~/.config/seshat-cli/` existe, afficher un message proposant la migration.
+1. **Première utilisation** : si `~/.config/seshat-tui/` n'existe pas mais `~/.config/seshat-cli/` existe, afficher un message proposant la migration.
 2. **Migration opt-in** : `seshat migrate` (ou un flag au démarrage) copie `seshat.db`, `secret.key`, `config.yaml` vers le nouveau répertoire. Les anciens artifacts restent dans l'ancien emplacement (on ne les déplace pas — trop risqué, trop lent).
-3. **Période de cohabitation** : `NEXUS_RUNTIME_ROOT=~/.config/seshat-cli` permet de rester sur l'ancien chemin sans changement.
+3. **Période de cohabitation** : `SESHAT_RUNTIME_ROOT=~/.config/seshat-cli` permet de rester sur l'ancien chemin sans changement.
 
 ---
 
@@ -254,7 +254,7 @@ Les installations existantes gardent leur répertoire `~/.config/seshat-cli/` in
 |-------|---------|--------|
 | 1 | Ajouter les fonctions session-scoped à `pkg/runtimepath` | aucun — nouvelles fonctions |
 | 2 | Créer `cmd/cli/appdir/appdir.go` avec `Root()`, `EnsureAppDirs()`, `EnsureSessionDir()`, `DeleteSessionDir()` | aucun — nouveau package |
-| 3 | Renommer le répertoire racine : `seshat-cli` → `nexus-tui` dans `main.go` + valeur par défaut Windows | breaking pour les users existants → faire en dernier avec migration |
+| 3 | Renommer le répertoire racine : `seshat-cli` → `seshat-tui` dans `main.go` + valeur par défaut Windows | breaking pour les users existants → faire en dernier avec migration |
 | 4 | Migrer le stockage des artifacts browser vers `sessions/{id}/images/` et `sessions/{id}/tools/` | modifier `storage/keys.go` + `storage/artifacts.go` |
 | 5 | Migrer les plans vers `sessions/{id}/plans/` | modifier `internal/modes/execution/plan.go` + `cache.go` |
 | 6 | Simplifier `DeleteSession` : remplacer par `appdir.DeleteSessionDir` + `store.DeleteSession` | remplace le code de nettoyage actuel |

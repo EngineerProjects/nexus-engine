@@ -15,5 +15,5 @@ Get Seshat's current runtime state: active model, provider, LSP/MCP status, skil
   loaded this session
 - Check [hooks] to see which hook events are configured and whether the
   hook runner is active
-- Pair with the nexus-config skill to fix configuration issues
+- Pair with the seshat-config skill to fix configuration issues
 </tips>

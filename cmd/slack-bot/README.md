@@ -32,8 +32,8 @@ Slack Workspace
 
 | Variable | Description |
 |---|---|
-| `NEXUS_SLACK_BOT_TOKEN` | `xoxb-...` - Bot User OAuth Token from api.slack.com (Install App) |
-| `NEXUS_SLACK_APP_TOKEN` | `xapp-...` - App-Level Token with `connections:write` scope (Socket Mode) |
+| `SESHAT_SLACK_BOT_TOKEN` | `xoxb-...` - Bot User OAuth Token from api.slack.com (Install App) |
+| `SESHAT_SLACK_APP_TOKEN` | `xapp-...` - App-Level Token with `connections:write` scope (Socket Mode) |
 
 All other config (LLM provider, API keys, search backends) is loaded from the standard Seshat env vars. See `private/.env.dev`.
 
@@ -44,30 +44,30 @@ All other config (LLM provider, API keys, search backends) is loaded from the st
 make slack-bot
 
 # Production
-NEXUS_SLACK_BOT_TOKEN=xoxb-... NEXUS_SLACK_APP_TOKEN=xapp-... ./bin/seshat-slack
+SESHAT_SLACK_BOT_TOKEN=xoxb-... SESHAT_SLACK_APP_TOKEN=xapp-... ./bin/seshat-slack
 ```
 
 ## Model selection
 
 The bot defaults to `mistral:mistral-small-latest` (free, good for testing).
 
-To switch models, set `NEXUS_MODEL` in your env:
+To switch models, set `SESHAT_MODEL` in your env:
 
 ```bash
 # Use Claude via OpenRouter (recommended for the demo)
-NEXUS_MODEL=openrouter:anthropic/claude-sonnet-4-5
+SESHAT_MODEL=openrouter:anthropic/claude-sonnet-4-5
 
 # Use Mistral (free)
-NEXUS_MODEL=mistral:mistral-small-latest
+SESHAT_MODEL=mistral:mistral-small-latest
 
 # Use any OpenRouter model
-NEXUS_MODEL=openrouter:google/gemini-2.0-flash-exp
+SESHAT_MODEL=openrouter:google/gemini-2.0-flash-exp
 ```
 
 ## Session persistence
 
 Sessions are stored in `~/.config/seshat-slack/sessions.db` by default.
-Override with `NEXUS_SLACK_DB_PATH=/path/to/sessions.db`.
+Override with `SESHAT_SLACK_DB_PATH=/path/to/sessions.db`.
 
 One session per Slack channel. Context is maintained across messages — the agent
 remembers the full conversation history within a channel.

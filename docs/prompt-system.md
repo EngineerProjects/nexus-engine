@@ -44,7 +44,7 @@ Priority  Section name           Type       Cacheable  Content
 (everything below is re-rendered every turn)
 
 780       runtime_guidance       dynamic    ✗          CWD, session/turn IDs
-775       project_instructions   dynamic    ✗          NEXUS.md / AGENTS.md content
+775       project_instructions   dynamic    ✗          SESHAT.md / AGENTS.md content
 770       stage_overlay          dynamic    ✗          Stage-specific text (if stage set)
 750       runtime_context        dynamic    ✗          Date, model, deferred tools
 730       runtime_memory         dynamic    ✗          Long-term memory entries
@@ -64,7 +64,7 @@ Dynamic sections reference variables resolved at build time:
 | `{{model}}` | Active model name |
 | `{{date}}` | ISO 8601 date |
 | `{{memory_context}}` | Formatted long-term memory block |
-| `{{project_instructions_block}}` | Trimmed NEXUS.md / AGENTS.md content |
+| `{{project_instructions_block}}` | Trimmed SESHAT.md / AGENTS.md content |
 
 ---
 
@@ -73,7 +73,7 @@ Dynamic sections reference variables resolved at build time:
 When the engine starts a session it looks for an instruction file in the working directory:
 
 ```
-1. NEXUS.md
+1. SESHAT.md
 2. AGENTS.md
 3. .seshat/instructions.md
 ```

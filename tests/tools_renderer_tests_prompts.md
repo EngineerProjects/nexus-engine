@@ -35,7 +35,7 @@ Exécute ces tools dans cet ordre exact :
 5. edit_file — dans /tmp/tui_test/hello.go, remplace :
        fmt.Println("hello world")
    par :
-       fmt.Println("hello, nexus!")
+       fmt.Println("hello, seshat!")
    → attendu : permission panel avec extrait old → new coloré
    → attendu après approbation : bulle chat avec diff rouge/vert
 
@@ -47,13 +47,13 @@ Exécute ces tools dans cet ordre exact :
    func add(a, b int) int { return a + b }
 
    func main() {
-       fmt.Println("hello, nexus!")
+       fmt.Println("hello, seshat!")
        fmt.Println(add(1, 2))
    }
    → attendu : permission panel montre le diff complet
 
 7. apply_patch — applique un patch qui :
-   - modifie /tmp/tui_test/hello.go (change "hello, nexus!" en "hello, world!")
+   - modifie /tmp/tui_test/hello.go (change "hello, seshat!" en "hello, world!")
    - crée /tmp/tui_test/readme.txt avec le contenu "test file"
    → attendu : bulle chat affiche fichiers modifiés avec indicateurs +/~
 
@@ -130,8 +130,8 @@ Valide : header multi-ligne, body numéroté, JSON highlighting, `(no output)`, 
 ```
 Exécute ces commandes bash dans cet ordre exact :
 
-1. bash — echo "hello from nexus"
-   → attendu : header = commande sur une ligne, body = "1  hello from nexus"
+1. bash — echo "hello from seshat"
+   → attendu : header = commande sur une ligne, body = "1  hello from seshat"
 
 2. bash — commande multi-ligne :
    for i in 1 2 3; do
@@ -140,7 +140,7 @@ Exécute ces commandes bash dans cet ordre exact :
    → attendu : header = "for i in 1 2 3; do (+2 lines)"
    → attendu : body = lignes numérotées "1  item 1", "2  item 2", "3  item 3"
 
-3. bash — echo '{"name": "nexus", "version": 1, "active": true}'
+3. bash — echo '{"name": "seshat", "version": 1, "active": true}'
    → attendu : body avec coloration syntaxique JSON
 
 4. bash — true
@@ -419,7 +419,7 @@ Exécute les appels dans cet ordre exact :
      question: "Quel nom de projet veux-tu utiliser ?"
      header: "Nom"
      options:
-       - label: "nexus-core"
+       - label: "seshat-core"
        - label: "seshat-v2"
    → attendu : option "Other" ajoutée automatiquement en bas
    → attendu : sélection "Other" → focus éditeur texte → réponse custom dans l'historique Q→A
@@ -735,7 +735,7 @@ Valide : `docx`, `monitor`, `code_complete`, `lsp`.
 Travaille uniquement dans /tmp. Exécute ces appels dans cet ordre exact.
 
 1. docx — créer un nouveau document :
-     document_path: "/tmp/test_nexus.docx"
+     document_path: "/tmp/test_seshat.docx"
      action: "create"
      content: "Seshat — rapport de test TUI"
      bold: true
@@ -743,15 +743,15 @@ Travaille uniquement dans /tmp. Exécute ces appels dans cet ordre exact.
      alignment: "center"
      title: "Rapport TUI"
      author: "Seshat Agent"
-   → attendu : header "✓ Docx  create  ~/test_nexus.docx"
+   → attendu : header "✓ Docx  create  ~/test_seshat.docx"
    → attendu : body = "Message: Document created successfully"
 
 2. docx — ajouter du contenu :
-     document_path: "/tmp/test_nexus.docx"
+     document_path: "/tmp/test_seshat.docx"
      action: "append"
      content: "Section 1 : le rendu TUI utilise bubbletea et lipgloss."
      italic: true
-   → attendu : header "✓ Docx  append  ~/test_nexus.docx"
+   → attendu : header "✓ Docx  append  ~/test_seshat.docx"
    → attendu : body = "Message: Content appended successfully"
 
 3. docx — créer un document avec table :
@@ -762,10 +762,10 @@ Travaille uniquement dans /tmp. Exécute ces appels dans cet ordre exact.
    → attendu : body = "Message: Document created successfully"
 
 4. docx — remplacer le premier paragraphe :
-     document_path: "/tmp/test_nexus.docx"
+     document_path: "/tmp/test_seshat.docx"
      action: "replace"
      content: "Seshat v2 — rapport de test TUI (mis à jour)"
-   → attendu : header "✓ Docx  replace  ~/test_nexus.docx"
+   → attendu : header "✓ Docx  replace  ~/test_seshat.docx"
    → attendu : body = "Message: Content replaced successfully"
 
 Ne fais rien d'autre après l'étape 4.
@@ -831,13 +831,13 @@ Exécute ces appels dans cet ordre exact.
 
 1. lsp — symboles du document :
      operation: "symbols"
-     file_path: "internal/nexustui/ui/chat/tools.go"
+     file_path: "internal/seshattui/ui/chat/tools.go"
    → attendu : header "✓ LSP  symbols  internal/…/tools.go  Found N symbol(s)"
    → attendu : aucun body (summary dans le header suffit)
 
 2. lsp — définition d'un symbole :
      operation: "definition"
-     file_path: "internal/nexustui/ui/chat/tools.go"
+     file_path: "internal/seshattui/ui/chat/tools.go"
      line: 99
      column: 6
    → attendu : header "✓ LSP  definition  internal/…/tools.go:99:6  Found N location(s)"
@@ -845,7 +845,7 @@ Exécute ces appels dans cet ordre exact.
 
 3. lsp — hover sur un identifiant :
      operation: "hover"
-     file_path: "internal/nexustui/ui/chat/tools.go"
+     file_path: "internal/seshattui/ui/chat/tools.go"
      line: 99
      column: 6
    → attendu : header "✓ LSP  hover  internal/…/tools.go:99:6  <texte hover tronqué>"
@@ -853,7 +853,7 @@ Exécute ces appels dans cet ordre exact.
 
 4. lsp — recherche workspace :
      operation: "workspace_symbol"
-     file_path: "internal/nexustui/ui/chat/tools.go"
+     file_path: "internal/seshattui/ui/chat/tools.go"
      query: "ToolMessageItem"
    → attendu : header "✓ LSP  workspace_symbol  internal/…/tools.go  ToolMessageItem  Found N symbol(s)"
 

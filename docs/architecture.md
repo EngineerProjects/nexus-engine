@@ -209,7 +209,7 @@ The prompt is assembled in two phases each turn:
             │                   DYNAMIC SECTIONS (per-turn)               │
             │                                                             │
             │  780       runtime_guidance    CWD, session/turn IDs, mode  │
-            │  775       project_instructions NEXUS.md / AGENTS.md        │
+            │  775       project_instructions SESHAT.md / AGENTS.md        │
             │  770       stage_overlay       Stage-specific guidance      │
             │  750       runtime_context     Date, model, tool list       │
             │  730       runtime_memory      Long-term memory context     │
@@ -225,7 +225,7 @@ The prompt is assembled in two phases each turn:
             • {{model}}              active model name
             • {{date}}               ISO date
             • {{memory_context}}     formatted memory entries
-            • {{project_instructions_block}}  NEXUS.md content (if present)
+            • {{project_instructions_block}}  SESHAT.md content (if present)
 
             Output: CacheSafePrompt
             • SystemPrompt          full assembled string for provider
@@ -249,7 +249,7 @@ When `PromptStage` is set, an additional section is injected at priority 770:
 The engine reads instruction files from the working directory in priority order:
 
 ```
-1. NEXUS.md
+1. SESHAT.md
 2. AGENTS.md
 3. .seshat/instructions.md
 ```

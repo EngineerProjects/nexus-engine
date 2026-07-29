@@ -263,9 +263,9 @@ Available when long-term memory is configured.
 | Tool | Description |
 |---|---|
 | `mcp_*` | Exposes MCP server tools. Each connected MCP server contributes one or more tools prefixed with the server name. |
-| `nexus_list_skills` | List available skills with name and description. |
-| `nexus_read_skill` | Read the full content of a skill file. |
-| `nexus_validate_skill` | Validate a skill file for structural correctness. |
+| `seshat_list_skills` | List available skills with name and description. |
+| `seshat_read_skill` | Read the full content of a skill file. |
+| `seshat_validate_skill` | Validate a skill file for structural correctness. |
 | `skill_run` | Invoke a skill by name with optional arguments. |
 
 ---
