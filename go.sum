@@ -262,8 +262,8 @@ github.com/microcosm-cc/bluemonday v1.0.27 h1:MpEUotklkwCSLeH+Qdx1VJgNqLlpY2KXwX
 github.com/microcosm-cc/bluemonday v1.0.27/go.mod h1:jFi9vgW+H7c3V0lb6nR74Ib/DIB5OBs92Dimizgw2cA=
 github.com/mitchellh/mapstructure v1.5.0 h1:jeMsZIYE/09sWLaz43PL7Gy6RuMjD2eJVyuac5Z2hdY=
 github.com/mitchellh/mapstructure v1.5.0/go.mod h1:bFUtVrKA4DC2yAKiSyO/QUcy7e+RRV2QTWOzhPopBRo=
-github.com/mmonterroca/docxgo/v2 v2.3.0 h1:0WTg5FKGEa2kW+YO7jPhlK5F4lNKGMVK2QvFZMHVa+Q=
-github.com/mmonterroca/docxgo/v2 v2.3.0/go.mod h1:Yc3h7M+sssxGMz51qQ8EHbfDb2NyleLbS+lZLH9Y0us=
+github.com/mmonterroca/docxgo/v2 v2.11.0 h1:KPVKAJFZQFW9+Y8pQ6NMcHt7NspgZEt2kk48MhFoKak=
+github.com/mmonterroca/docxgo/v2 v2.11.0/go.mod h1:Yc3h7M+sssxGMz51qQ8EHbfDb2NyleLbS+lZLH9Y0us=
 github.com/modelcontextprotocol/go-sdk v1.6.1 h1:0zOSupjKUxPKSocPT1Wtago+mUHU2/uZ4xSOY0FGReU=
 github.com/modelcontextprotocol/go-sdk v1.6.1/go.mod h1:kzm3kzFL1/+AziGOE0nUs3gvPoNxMCvkxokMkuFapXQ=
 github.com/muesli/cancelreader v0.2.2 h1:3I4Kt4BQjOR54NavqnDogx/MIoWBFa0StPA8ELUXHmA=

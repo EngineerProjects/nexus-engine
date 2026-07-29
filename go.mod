@@ -51,7 +51,7 @@ require (
 	github.com/jordanella/go-ansi-paintbrush v0.0.0-20240728195301-b7ad996ecf3d
 	github.com/lucasb-eyer/go-colorful v1.4.0
 	github.com/mattn/go-isatty v0.0.20
-	github.com/mmonterroca/docxgo/v2 v2.3.0
+	github.com/mmonterroca/docxgo/v2 v2.11.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/pdfcpu/pdfcpu v0.11.1
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
