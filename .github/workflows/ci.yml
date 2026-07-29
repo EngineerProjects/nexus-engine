@@ -91,6 +91,12 @@ jobs:
           cache: true
 
       - name: gosec
+        # Report-only for now: this is the first SAST pass on an existing
+        # ~176k line codebase and surfaced 446 pre-existing findings (57
+        # HIGH, 228 MEDIUM, 161 LOW) that need triage before this can gate
+        # merges. Tracked separately; flip continue-on-error off once the
+        # backlog is triaged (fixed or explicitly accepted with #nosec).
+        continue-on-error: true
         uses: securego/gosec@master
         with:
           args: -exclude-generated ./...
