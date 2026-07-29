@@ -18,7 +18,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -39,7 +39,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -54,7 +54,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -85,7 +85,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache: true
@@ -123,11 +123,11 @@ jobs:
           if [[ "${{ github.event_name }}" == "pull_request" && \
                 "${{ github.base_ref }}" == "dev" ]]; then
             case "${{ github.head_ref }}" in
-              feat/*|feature/*|fix/*|bugfix/*|docs/*|refactor/*|test/*|chore/*|perf/*|ci/*)
+              feat/*|feature/*|fix/*|bugfix/*|docs/*|refactor/*|test/*|chore/*|perf/*|ci/*|dependabot/*)
                 ;;
               *)
                 echo "Pull requests targeting dev must come from a typed topic branch."
-                echo "Allowed prefixes: feat/, feature/, fix/, bugfix/, docs/, refactor/, test/, chore/, perf/, ci/"
+                echo "Allowed prefixes: feat/, feature/, fix/, bugfix/, docs/, refactor/, test/, chore/, perf/, ci/, dependabot/"
                 echo "Current head branch: ${{ github.head_ref }}"
                 exit 1
                 ;;
