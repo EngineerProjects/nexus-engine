@@ -61,7 +61,7 @@ require (
 	github.com/rivo/uniseg v0.4.7
 	github.com/sahilm/fuzzy v0.1.1
 	github.com/shopspring/decimal v1.4.0
-	github.com/slack-go/slack v0.26.0
+	github.com/slack-go/slack v0.27.0
 	github.com/sourcegraph/jsonrpc2 v0.2.1
 	github.com/spf13/viper v1.18.2
 	github.com/stretchr/testify v1.11.1
