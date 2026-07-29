@@ -123,11 +123,11 @@ jobs:
           if [[ "${{ github.event_name }}" == "pull_request" && \
                 "${{ github.base_ref }}" == "dev" ]]; then
             case "${{ github.head_ref }}" in
-              feat/*|feature/*|fix/*|bugfix/*|docs/*|refactor/*|test/*|chore/*|perf/*|ci/*)
+              feat/*|feature/*|fix/*|bugfix/*|docs/*|refactor/*|test/*|chore/*|perf/*|ci/*|dependabot/*)
                 ;;
               *)
                 echo "Pull requests targeting dev must come from a typed topic branch."
-                echo "Allowed prefixes: feat/, feature/, fix/, bugfix/, docs/, refactor/, test/, chore/, perf/, ci/"
+                echo "Allowed prefixes: feat/, feature/, fix/, bugfix/, docs/, refactor/, test/, chore/, perf/, ci/, dependabot/"
                 echo "Current head branch: ${{ github.head_ref }}"
                 exit 1
                 ;;
