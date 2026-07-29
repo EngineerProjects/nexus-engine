@@ -39,7 +39,7 @@ func processExists(pid int) bool {
 	if err != nil {
 		return false
 	}
-	defer windows.CloseHandle(h)
+	defer func() { _ = windows.CloseHandle(h) }()
 	var exitCode uint32
 	if err := windows.GetExitCodeProcess(h, &exitCode); err != nil {
 		return false
