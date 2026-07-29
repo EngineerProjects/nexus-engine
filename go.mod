@@ -56,7 +56,7 @@ require (
 	github.com/pdfcpu/pdfcpu v0.13.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/posthog/posthog-go v1.15.0
-	github.com/qdrant/go-client v1.18.1
+	github.com/qdrant/go-client v1.18.3
 	github.com/qjebbs/go-jsons v1.0.0-alpha.5
 	github.com/rivo/uniseg v0.4.7
 	github.com/sahilm/fuzzy v0.1.3
