@@ -22,6 +22,7 @@ func TestForcePlanMode_EntersPlanModeAndCapturesPrePlanMode(t *testing.T) {
 	ctx := s.GetPermissionContext()
 	if ctx == nil {
 		t.Fatal("expected non-nil permission context")
+		return
 	}
 	if ctx.PrePlanMode != types.PermissionModeAuto {
 		t.Fatalf("expected PrePlanMode to capture prior mode 'auto', got %q", ctx.PrePlanMode)
