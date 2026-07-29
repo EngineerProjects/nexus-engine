@@ -3,7 +3,7 @@ module github.com/KPO-Tech/seshat
 go 1.26.5
 
 require (
-	charm.land/bubbles/v2 v2.1.0
+	charm.land/bubbles/v2 v2.1.1
 	charm.land/bubbletea/v2 v2.0.8
 	charm.land/catwalk v0.44.7
 	charm.land/glamour/v2 v2.0.1
@@ -59,7 +59,7 @@ require (
 	github.com/qdrant/go-client v1.18.1
 	github.com/qjebbs/go-jsons v1.0.0-alpha.5
 	github.com/rivo/uniseg v0.4.7
-	github.com/sahilm/fuzzy v0.1.1
+	github.com/sahilm/fuzzy v0.1.3
 	github.com/shopspring/decimal v1.4.0
 	github.com/slack-go/slack v0.26.0
 	github.com/sourcegraph/jsonrpc2 v0.2.1
