@@ -2,7 +2,7 @@
 
 ## Step 1 — Invite judges to the Slack workspace
 
-Go to: slack.com → workspace `nexus-axh6106` → **Settings & administration → Manage members → Invite people**
+Go to: slack.com → workspace `seshat-axh6106` → **Settings & administration → Manage members → Invite people**
 
 Invite both:
 - `slackhack@salesforce.com`
@@ -11,13 +11,13 @@ Invite both:
 ## Step 2 — Sandbox URL for DevPost submission
 
 ```
-https://nexus-axh6106.slack.com
+https://seshat-axh6106.slack.com
 ```
 
 ## Step 3 — Make the bot accessible
 
 Make sure `@Seshat` is added to a public channel the judges can see.
-Either `#general` or create a dedicated `#nexus-demo` channel.
+Either `#general` or create a dedicated `#seshat-demo` channel.
 
 Judges should be able to type `@Seshat hello` and get a response.
 

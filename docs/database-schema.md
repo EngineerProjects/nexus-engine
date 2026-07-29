@@ -87,14 +87,14 @@ sqlDB.SetMaxIdleConns(1)
 ## 3. Complete Schema — Core SQLite Tables
 
 All tables below are created by versioned migrations in
-`internal/db/migrations_sqlite_core.go` and tracked in `nexus_schema_migrations`.
+`internal/db/migrations_sqlite_core.go` and tracked in `seshat_schema_migrations`.
 
 ---
 
-### 3.1 `nexus_schema_migrations` — Migration Tracking
+### 3.1 `seshat_schema_migrations` — Migration Tracking
 
 ```sql
-CREATE TABLE nexus_schema_migrations (
+CREATE TABLE seshat_schema_migrations (
     id             TEXT    NOT NULL,          -- migration ID string
     scope          TEXT    NOT NULL,          -- "core_sqlite" for CLI tables
     applied_at_unix INTEGER NOT NULL,
@@ -398,7 +398,7 @@ CREATE TABLE schema_migrations (
 );
 ```
 
-Kept for databases created before `nexus_schema_migrations` was introduced.
+Kept for databases created before `seshat_schema_migrations` was introduced.
 Not written by any current migration.
 
 ---
@@ -512,7 +512,7 @@ Not written by any current migration.
 
 ## 6. Migration System
 
-**Tracking table**: `nexus_schema_migrations` (PK: `id + scope`)
+**Tracking table**: `seshat_schema_migrations` (PK: `id + scope`)
 
 **Scope**: `core_sqlite` — all CLI/engine-owned migrations
 
@@ -545,7 +545,7 @@ cmd/cli main()
   └─ os.Setenv("SESHAT_RUNTIME_ROOT", "~/.config/seshat-cli")
        └─ pkg/config.Load()
             └─ viper reads ~/.config/seshat-cli/config.yaml   (if present)
-            └─ viper reads env vars (prefix: NEXUS_)
+            └─ viper reads env vars (prefix: SESHAT_)
             └─ config.RuntimeRoot = runtimepath.ResolveRoot("")
                  → "~/.config/seshat-cli"
             └─ ExpandShellValues(config)    -- resolves $(...) in yaml values
@@ -553,8 +553,8 @@ cmd/cli main()
 
        └─ openCredentialsDB(config)
             └─ engineconfig.EffectiveSessionDBPath(config)
-                 → config.SessionDBPath  if set (NEXUS_SESSION_DB_PATH)
-                 → config.DBPath         if set (NEXUS_DB_PATH)
+                 → config.SessionDBPath  if set (SESHAT_SESSION_DB_PATH)
+                 → config.DBPath         if set (SESHAT_DB_PATH)
                  → runtimepath.BackendDBPath(config.RuntimeRoot)
                       → ~/.config/seshat-cli/data/seshat.db
             └─ db.Open(ctx, db.DefaultSQLiteConfig(path))
@@ -575,7 +575,7 @@ cmd/cli main()
 ## 8. Config File (`~/.config/seshat-cli/config.yaml`)
 
 Secrets are **never stored** in this file (`stripRuntimeSecrets()` removes them
-before saving). Use the TUI settings screen or `NEXUS_*` env vars instead.
+before saving). Use the TUI settings screen or `SESHAT_*` env vars instead.
 
 ```yaml
 # Model — override the persisted selection from credentials table
@@ -613,22 +613,22 @@ hooks:
 | Field | Env var | Default | Notes |
 |---|---|---|---|
 | `runtime_root` | `SESHAT_RUNTIME_ROOT` | `~/.config/seshat` | CLI overrides to `~/.config/seshat-cli` |
-| `cwd` | `NEXUS_CWD` | `.` | Working directory for file tools |
-| `model` | `NEXUS_MODEL` | `""` | Format: `provider:model` or bare model name |
+| `cwd` | `SESHAT_CWD` | `.` | Working directory for file tools |
+| `model` | `SESHAT_MODEL` | `""` | Format: `provider:model` or bare model name |
 | `max_tokens` | — | `4096` | Max output tokens per turn |
 | `temperature` | — | `0.7` | Sampling temperature |
-| `api_key` | `NEXUS_API_KEY` | `""` | Loaded from credentials DB at runtime |
-| `db_path` | `NEXUS_DB_PATH` | `""` | Overrides default SQLite path |
-| `session_db_path` | `NEXUS_SESSION_DB_PATH` | `""` | Separate session DB (optional) |
-| `provider_base_url` | `NEXUS_PROVIDER_BASE_URL` | `""` | Ollama/Foundry custom endpoint |
-| `provider_region` | `NEXUS_PROVIDER_REGION` | `""` | AWS/GCP region |
-| `provider_project_id` | `NEXUS_PROVIDER_PROJECT_ID` | `""` | GCP project (Vertex) |
-| `provider_resource` | `NEXUS_PROVIDER_RESOURCE` | `""` | Azure Foundry resource ID |
+| `api_key` | `SESHAT_API_KEY` | `""` | Loaded from credentials DB at runtime |
+| `db_path` | `SESHAT_DB_PATH` | `""` | Overrides default SQLite path |
+| `session_db_path` | `SESHAT_SESSION_DB_PATH` | `""` | Separate session DB (optional) |
+| `provider_base_url` | `SESHAT_PROVIDER_BASE_URL` | `""` | Ollama/Foundry custom endpoint |
+| `provider_region` | `SESHAT_PROVIDER_REGION` | `""` | AWS/GCP region |
+| `provider_project_id` | `SESHAT_PROVIDER_PROJECT_ID` | `""` | GCP project (Vertex) |
+| `provider_resource` | `SESHAT_PROVIDER_RESOURCE` | `""` | Azure Foundry resource ID |
 | `mcp_enabled` | — | `true` | Enable MCP server integrations |
 | `skills_enabled` | — | `true` | Enable slash-command skills |
-| `debug` | `NEXUS_DEBUG` | `false` | Verbose logging |
+| `debug` | `SESHAT_DEBUG` | `false` | Verbose logging |
 | `web_search_provider` | `WEB_SEARCH_PROVIDER` | `"auto"` | Active search provider |
-| `skill_repos` | `NEXUS_SKILL_REPOS` | `""` | Comma-separated git URLs to clone |
+| `skill_repos` | `SESHAT_SKILL_REPOS` | `""` | Comma-separated git URLs to clone |
 | `default_skill_repo` | `SESHAT_DEFAULT_SKILL_REPO` | canonical seshat-skills URL | Set to `"none"` to disable |
 | `hooks` | — | `{}` | Lifecycle hook commands |
 
@@ -694,7 +694,7 @@ provider_resource     → ANTHROPIC_FOUNDRY_RESOURCE
 ```
 loadOrCreateEncryptionKey()
   1. Read ~/.config/seshat/secret.key (32 bytes)
-  2. If absent, try legacy ~/.nexus_secret (migration)
+  2. If absent, try legacy ~/.seshat_secret (migration)
   3. If absent, generate new key with crypto/rand, write with mode 0600
 
 encryptAESGCM(key, plaintext)
@@ -735,10 +735,10 @@ content: |
 
 | Field | Purpose |
 |---|---|
-| `NEXUS_SKILL_REPOS` | Comma-separated git URLs cloned at startup |
+| `SESHAT_SKILL_REPOS` | Comma-separated git URLs cloned at startup |
 | `SESHAT_DEFAULT_SKILL_REPO` | Official seshat-skills repo (auto-cloned on first boot) |
-| `NEXUS_FEATURED_SKILL_REPOS` | Shown as installable catalog in the UI |
-| `NEXUS_SKILL_REPO_HOSTS` | Allowed git hosts for skill installation (default: github.com, gitlab.com, bitbucket.org, codeberg.org) |
+| `SESHAT_FEATURED_SKILL_REPOS` | Shown as installable catalog in the UI |
+| `SESHAT_SKILL_REPO_HOSTS` | Allowed git hosts for skill installation (default: github.com, gitlab.com, bitbucket.org, codeberg.org) |
 
 Skills are exposed as `/skill-name` slash commands in the TUI.
 `LoadSkills(ctx)` in the `Workspace` interface returns all available skills.
@@ -753,11 +753,11 @@ Skills are exposed as `/skill-name` slash commands in the TUI.
 
 | Backend | Config key | Notes |
 |---|---|---|
-| `sqlite` | `NEXUS_VECTOR_BACKEND=sqlite` | Default, no extra deps |
-| `pgvector` | `NEXUS_PGVECTOR_DSN=postgres://...` | Requires pgvector extension |
+| `sqlite` | `SESHAT_VECTOR_BACKEND=sqlite` | Default, no extra deps |
+| `pgvector` | `SESHAT_PGVECTOR_DSN=postgres://...` | Requires pgvector extension |
 | `qdrant` | `QDRANT_HOST`, `QDRANT_PORT` | External Qdrant service |
 | `chroma` | `CHROMA_URL` | External Chroma service |
-| `memory` | `NEXUS_VECTOR_BACKEND=memory` | In-process, no persistence |
+| `memory` | `SESHAT_VECTOR_BACKEND=memory` | In-process, no persistence |
 
 **Embedder config**:
 
@@ -778,7 +778,7 @@ table (under `mcp_servers_json` key) and managed through the TUI settings screen
 their tool counts.
 
 MCP is enabled by default (`mcp_enabled: true`). Set `mcp_enabled: false` in
-`config.yaml` or `NEXUS_MCP_ENABLED=false` to disable.
+`config.yaml` or `SESHAT_MCP_ENABLED=false` to disable.
 
 ---
 

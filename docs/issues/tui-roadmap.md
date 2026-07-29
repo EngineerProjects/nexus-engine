@@ -41,7 +41,7 @@ This note tracks the current UX progress of the Seshat CLI TUI and the next inte
 - Status: done
 
 ### 7. Config/credentials isolation (CLI vs backend)
-- CLI sets `NEXUS_RUNTIME_ROOT` → `~/.config/seshat-cli`; backend stays on `~/.config/seshat`.
+- CLI sets `SESHAT_RUNTIME_ROOT` → `~/.config/seshat-cli`; backend stays on `~/.config/seshat`.
 - `LoadInto()` uses `runtimepath.ResolveRoot("")` instead of a hardcoded path.
 - `ParseModelIdentifier("")` returns an empty `ModelIdentifier{}` instead of the Anthropic SDK default.
 - No provider configured at startup → welcome screen shows `ctrl+p` hint instead of auto-opening settings.
@@ -234,6 +234,6 @@ Status: planned (low effort)
 
 ## Reference
 
-- Crush (`/home/amiche/Projects/AI/ai/nexus-product/helps/crush`) remains the primary reference for tool row style, thinking blocks, and animation patterns.
+- Crush (`/home/amiche/Projects/AI/ai/seshat-ai/helps/crush`) remains the primary reference for tool row style, thinking blocks, and animation patterns.
 - Seshat intentionally diverges from Crush on markdown heading presentation and chat chrome.
 - `AGENTS.md` stays focused on engineering rules; roadmap items belong here.

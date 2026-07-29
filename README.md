@@ -18,7 +18,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/Status-Active%20Development-orange?style=for-the-badge">
-  <img src="https://img.shields.io/badge/Go-1.25%2B-00ADD8?style=for-the-badge&logo=go">
+  <img src="https://img.shields.io/badge/Go-1.26%2B-00ADD8?style=for-the-badge&logo=go">
   <img src="https://img.shields.io/badge/License-Apache%202.0-brightgreen?style=for-the-badge">
   <img src="https://img.shields.io/badge/Providers-15-4F6EF7?style=for-the-badge">
   <img src="https://img.shields.io/badge/Tools-60%2B-A855F7?style=for-the-badge">
@@ -255,14 +255,14 @@ ANTHROPIC_API_KEY=sk-ant-... go run ./cmd/grpc
 ANTHROPIC_API_KEY=sk-ant-... ./bin/seshat-grpc
 ```
 
-Server starts on `:50051`. The contract lives in `pkg/grpc/proto/nexus.proto`. Generate a client for Python, TypeScript, Java, Rust, or any gRPC-supported language:
+Server starts on `:50051`. The contract lives in `pkg/grpc/proto/seshat.proto`. Generate a client for Python, TypeScript, Java, Rust, or any gRPC-supported language:
 
 ```bash
 # Python
-python -m grpc_tools.protoc -I pkg/grpc/proto --python_out=. --grpc_python_out=. nexus.proto
+python -m grpc_tools.protoc -I pkg/grpc/proto --python_out=. --grpc_python_out=. seshat.proto
 
 # TypeScript
-npx grpc-tools --js_out=. --grpc_out=. pkg/grpc/proto/nexus.proto
+npx grpc-tools --js_out=. --grpc_out=. pkg/grpc/proto/seshat.proto
 ```
 
 One runtime. Every language.

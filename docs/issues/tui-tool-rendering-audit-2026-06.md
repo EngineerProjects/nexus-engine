@@ -23,7 +23,7 @@ Show a summary; hide the raw payload.
 
 | Tool(s) | State | Notes |
 |---|---|---|
-| `nexus_read_skill` | Impl | Header-only on success (skill name + summary); renderer implemented, validation pending. |
+| `seshat_read_skill` | Impl | Header-only on success (skill name + summary); renderer implemented, validation pending. |
 
 Done: `read_file`, `get_file_metadata`, `read_document_url`, `list_agents`, `memory_search_nodes`, `memory_open_nodes`, `get_goal`, all `browser_*` list/capture tools (`browser_snapshot`, `browser_extract`, `browser_network_list`, `browser_list_downloads`, `browser_list_pages`, `browser_search_content`).
 
@@ -34,8 +34,8 @@ Done: `read_file`, `get_file_metadata`, `read_document_url`, `list_agents`, `mem
 | Tool(s) | State | Notes |
 |---|---|---|
 | `skill` | Impl | Header-only on success (skill name + args); body shown on error. Renderer implemented, validation pending. |
-| `nexus_list_skills` | Impl | Markdown table body. Renderer implemented, validation pending. |
-| `nexus_validate_skill` | Impl | Plain-text body always shown (success can still carry warnings). Renderer implemented, validation pending. |
+| `seshat_list_skills` | Impl | Markdown table body. Renderer implemented, validation pending. |
+| `seshat_validate_skill` | Impl | Plain-text body always shown (success can still carry warnings). Renderer implemented, validation pending. |
 | `tool_search` | Impl | Renderer implemented; validation pending (test 11). |
 | `mcp_list_resources`, `mcp_read_resource`, `mcp_*` | Impl | Renderers implemented; validation pending (test 11). |
 | `rag_search`, `rag_ingest` | Planned | Counts and identifiers. See **Special Tools**. |
@@ -131,7 +131,7 @@ Done: `monitor` (`monitor.go`), `code_complete` (`fim.go`), `docx` (`docx.go`).
 `agent` · `spawn_agent` · `resume_agent` · `wait_agent` · `list_agents` · `send_agent_message` · `close_agent` · `enter_worktree` · `exit_worktree`
 
 ### System, MCP, skills, and retrieval
-`tool_search` · `mcp` · `skill` · `nexus_list_skills` · `nexus_read_skill` · `nexus_validate_skill` · `rag_search` · `rag_ingest`
+`tool_search` · `mcp` · `skill` · `seshat_list_skills` · `seshat_read_skill` · `seshat_validate_skill` · `rag_search` · `rag_ingest`
 
 ### LSP, memory, goals, media, and config
 `lsp` · `memory_create_entities` · `memory_add_observations` · `memory_search_nodes` · `memory_open_nodes` · `create_goal` · `get_goal` · `update_goal` · `generate_image` · `tts` · `stt` · `code_complete` · `brief` · `config`
