@@ -118,7 +118,7 @@ func ReadPDF(filePath string) (*PDFResult, error) {
 	}
 
 	// Validate PDF and get page count
-	ctx, err := pdfcpu.Read(bytes.NewReader(data), &model.Configuration{})
+	ctx, err := pdfcpu.Read(bytes.NewReader(data), model.NewDefaultConfiguration())
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse PDF: %w", err)
 	}
@@ -146,7 +146,7 @@ func GetPDFPageCount(filePath string) (int, error) {
 	}
 
 	// Parse PDF
-	ctx, err := pdfcpu.Read(bytes.NewReader(data), &model.Configuration{})
+	ctx, err := pdfcpu.Read(bytes.NewReader(data), model.NewDefaultConfiguration())
 	if err != nil {
 		return 0, fmt.Errorf("failed to parse PDF: %w", err)
 	}
@@ -181,7 +181,7 @@ func ExtractPDFPages(filePath string, pageRange *PDFPageRange) (*PDFExtractionRe
 	}
 
 	// Extract pages as separate PDFs
-	conf := &model.Configuration{}
+	conf := model.NewDefaultConfiguration()
 	err = api.ExtractPagesFile(filePath, outputDir, pageRanges, conf)
 	if err != nil {
 		os.RemoveAll(outputDir)
