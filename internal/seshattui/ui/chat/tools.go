@@ -90,14 +90,6 @@ func (s *SpinningState) HasResult() bool {
 // Returns true if the tool should show the spinning animation.
 type SpinningFunc func(state SpinningState) bool
 
-// DefaultToolRenderContext implements the default [ToolRenderer] interface.
-type DefaultToolRenderContext struct{}
-
-// RenderTool implements the [ToolRenderer] interface.
-func (d *DefaultToolRenderContext) RenderTool(sty *styles.Styles, width int, opts *ToolRenderOpts) string {
-	return "TODO: Implement Tool Renderer For: " + opts.ToolCall.Name
-}
-
 // ToolRenderOpts contains the data needed to render a tool call.
 type ToolRenderOpts struct {
 	ToolCall        message.ToolCall

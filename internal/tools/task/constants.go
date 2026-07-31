@@ -7,7 +7,6 @@ const (
 	ToolNameTaskStop   = "task_stop"
 	ToolNameTaskList   = "task_list"
 	ToolNameTaskGet    = "task_get"
-	ToolNameTaskOutput = "task_output"
 	ToolNameTaskCreate = "task_create"
 	ToolNameTaskUpdate = "task_update"
 )
@@ -17,7 +16,6 @@ const (
 	SearchHintTaskStop   = "stop tracking a task or kill a background task"
 	SearchHintTaskList   = "list tracked tasks or background tasks"
 	SearchHintTaskGet    = "get details of a tracked task or background task by ID"
-	SearchHintTaskOutput = "read output from a background task"
 	SearchHintTaskCreate = "create a task in the task list"
 	SearchHintTaskUpdate = "update a task in the task list"
 )
@@ -73,24 +71,6 @@ Use this tool to:
 Parameters:
 - task_id: The ID of the task to inspect
 - taskType (optional): 'todo' or 'background' to force one mode
-`
-
-	ToolDescriptionTaskOutput = `
-DEPRECATED: Prefer using Read tool on the task's output file path instead.
-
-Retrieves output from a running or completed background task.
-
-Use this tool to:
-- Read stdout/stderr from a shell task
-- Check if a task has completed
-- Wait for task completion (blocking mode)
-
-Parameters:
-- task_id: The ID of the task to get output from
-- block: Whether to wait for completion (default: true)
-- timeout: Max wait time in ms (default: 30000)
-
-Returns task output along with status information.
 `
 
 	ToolDescriptionTaskCreate = `

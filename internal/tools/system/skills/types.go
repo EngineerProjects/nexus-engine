@@ -8,12 +8,11 @@ import (
 type LoadedFrom string
 
 const (
-	LoadedFromCommandsDeprecated LoadedFrom = "commands_DEPRECATED"
-	LoadedFromSkills             LoadedFrom = "skills"
-	LoadedFromPlugin             LoadedFrom = "plugin"
-	LoadedFromManaged            LoadedFrom = "managed"
-	LoadedFromBundled            LoadedFrom = "bundled"
-	LoadedFromMCP                LoadedFrom = "mcp"
+	LoadedFromSkills  LoadedFrom = "skills"
+	LoadedFromPlugin  LoadedFrom = "plugin"
+	LoadedFromManaged LoadedFrom = "managed"
+	LoadedFromBundled LoadedFrom = "bundled"
+	LoadedFromMCP     LoadedFrom = "mcp"
 )
 
 type SettingSource string

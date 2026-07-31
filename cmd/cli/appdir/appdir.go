@@ -83,10 +83,16 @@ func GlobalConfigPath() string { return filepath.Join(Root(), "seshat.json") }
 // EnsureAppDirs creates the top-level directories required at startup and
 // seeds seshat.json with an empty object if the file does not yet exist.
 // Safe to call multiple times (os.MkdirAll and the existence check are both idempotent).
+//
+// SessionsDir() is deliberately not created here: it belongs to the
+// sessions/{id}/... on-disk layout proposed in
+// docs/issues/session-directory-layout.md, which was never wired up
+// (EnsureSessionDir is unused) - real session data goes through the
+// storage.StorageProvider "sessions" key prefix instead (see internal/storage/keys.go).
+// Creating an always-empty dir here just looks like silent data loss.
 func EnsureAppDirs() error {
 	dirs := []string{
 		LogsDir(),
-		SessionsDir(),
 	}
 	for _, d := range dirs {
 		if err := os.MkdirAll(d, 0o700); err != nil {
