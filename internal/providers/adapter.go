@@ -51,7 +51,7 @@ func adapterForProvider(p types.APIProvider) providerAdapter {
 	switch p {
 	case types.APIProviderZAi, "zai", "z.ai":
 		return zAiAdapter{}
-	case types.APIProviderOpenAI, types.APIProviderMiniMax, types.APIProviderOpenRouter, types.APIProviderMistral, types.APIProviderDeepSeek, types.APIProviderOpenCode:
+	case types.APIProviderOpenAI, types.APIProviderMiniMax, types.APIProviderOpenRouter, types.APIProviderMistral, types.APIProviderDeepSeek, types.APIProviderOpenCode, types.APIProviderKimi:
 		return openAICompatAdapter{}
 	case types.APIProviderCodex:
 		return codexAdapter{}
