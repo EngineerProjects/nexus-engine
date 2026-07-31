@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/KPO-Tech/seshat/internal/docling"
+	"github.com/KPO-Tech/seshat/internal/officetext"
+	"github.com/KPO-Tech/seshat/internal/pdftext"
 	"github.com/KPO-Tech/seshat/internal/sandbox"
 	tool "github.com/KPO-Tech/seshat/internal/tools/registry"
 	"github.com/KPO-Tech/seshat/internal/tools/schema"
@@ -465,6 +467,26 @@ func (t *Tool) readPDFFile(
 		return tool.NewTextResult(t.formatPDFMarkdownResult(result)), nil
 	}
 
+	// Native text-layer extraction: most PDFs (reports, exports, invoices)
+	// carry a real text layer and need no OCR at all. Try this before ever
+	// reaching for docling - it's free (no process/network dependency) and
+	// instant. A Sparse result (little/no text relative to page count)
+	// means this is likely a scan, so fall through to docling for OCR.
+	if data, readErr := os.ReadFile(filePath); readErr == nil {
+		if native, extractErr := pdftext.Extract(data); extractErr == nil && !native.Sparse {
+			result := &FileReadResult{
+				Type: FileTypePDFMarkdown,
+				PDFMarkdown: &PDFMarkdownFileResult{
+					FilePath:     filePath,
+					Markdown:     native.Text,
+					OriginalSize: fileInfo.Size(),
+					PageCount:    native.PageCount,
+				},
+			}
+			return tool.NewTextResult(t.formatPDFMarkdownResult(result)), nil
+		}
+	}
+
 	// Docling path: convert to markdown.
 	if t.doclingClient != nil && t.doclingClient.IsAvailable(ctx) {
 		conversion, err := t.doclingClient.ConvertFile(ctx, filePath)
@@ -615,6 +637,33 @@ func (t *Tool) readDoclingFile(
 			},
 		}
 		return tool.NewTextResult(t.formatDoclingResult(result)), nil
+	}
+
+	// DOCX/PPTX/XLSX are zipped XML, not scanned documents - no ML/OCR is
+	// needed to read them, so try the native, dependency-free extractor
+	// before ever reaching for docling-serve. WAV/MP3 (officetext.Extract
+	// returns ok=false for those) still need docling for transcription.
+	if officetext.SupportedExtensions[ext] {
+		data, readErr := os.ReadFile(filePath)
+		if readErr != nil {
+			return tool.NewErrorResult(fmt.Errorf("failed to read %s: %w", strings.ToUpper(format), readErr)), nil
+		}
+		if markdown, ok, extractErr := officetext.Extract(filePath, data); ok && extractErr == nil {
+			result := &FileReadResult{
+				Type: FileTypeDocling,
+				Docling: &DoclingFileResult{
+					FilePath:     filePath,
+					Format:       format,
+					Markdown:     markdown,
+					OriginalSize: fileInfo.Size(),
+				},
+			}
+			return tool.NewTextResult(t.formatDoclingResult(result)), nil
+		}
+		// Fell through: parse failure or no extractable text (e.g. a slide
+		// deck that's all images). Try docling next since it may still get
+		// something out of it (OCR on embedded images, etc.); if docling
+		// isn't available either, the message below reports both attempts.
 	}
 
 	if t.doclingClient == nil || !t.doclingClient.IsAvailable(ctx) {
