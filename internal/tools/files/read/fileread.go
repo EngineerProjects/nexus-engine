@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/KPO-Tech/seshat/internal/docling"
 	"github.com/KPO-Tech/seshat/internal/sandbox"
@@ -392,6 +393,44 @@ func (t *Tool) handleBinaryFile(filePath string) (tool.CallResult, error) {
 	return tool.NewTextResult(t.formatBinaryResult(result)), nil
 }
 
+// markdownSidecarMaxAge caps how much we trust a pre-converted "<name>.md"
+// file sitting next to the source: if it's older than the source (edited/
+// replaced after conversion) or simply ancient, treat it as stale and
+// reconvert rather than serve outdated content.
+const markdownSidecarMaxAge = 24 * time.Hour
+
+// sidecarMarkdown checks for a pre-converted "<name>.md" file next to filePath
+// - the exact convention seshat-ai's upload pipeline writes when it eagerly
+// docling-converts an attachment - and returns its content if present and not
+// stale. This avoids a second full docling-serve round-trip (including OCR
+// cost for scanned PDFs/images) when the caller already paid for one.
+//
+// Images embedded in the original conversion are NOT recovered here: seshat-ai
+// writes extracted images into the same directory using docling's suggested
+// filenames with no per-document prefix, so on a cache hit there's no reliable
+// way to tell which images (if any) belong to this specific document. Callers
+// that need embedded images back get a normal fresh conversion (no sidecar
+// content is returned when Images matter) - this only shortcuts the far more
+// common "just the text" read.
+func sidecarMarkdown(filePath string, sourceInfo os.FileInfo) string {
+	mdPath := strings.TrimSuffix(filePath, filepath.Ext(filePath)) + ".md"
+	mdInfo, err := os.Stat(mdPath)
+	if err != nil || mdInfo.IsDir() {
+		return ""
+	}
+	if mdInfo.ModTime().Before(sourceInfo.ModTime()) {
+		return ""
+	}
+	if time.Since(mdInfo.ModTime()) > markdownSidecarMaxAge {
+		return ""
+	}
+	data, err := os.ReadFile(mdPath)
+	if err != nil || len(data) == 0 {
+		return ""
+	}
+	return string(data)
+}
+
 // readPDFFile reads a PDF file.
 // When a docling client is configured and reachable it converts the PDF to
 // structured markdown (preserving tables, figures, headings). Otherwise it
@@ -410,6 +449,20 @@ func (t *Tool) readPDFFile(
 
 	if fileInfo.Size() > t.config.MaxFileSize {
 		return tool.NewErrorResult(fmt.Errorf("PDF too large (%d bytes, max %d bytes)", fileInfo.Size(), t.config.MaxFileSize)), nil
+	}
+
+	if cached := sidecarMarkdown(filePath, fileInfo); cached != "" {
+		pageCount, _ := GetPDFPageCount(filePath)
+		result := &FileReadResult{
+			Type: FileTypePDFMarkdown,
+			PDFMarkdown: &PDFMarkdownFileResult{
+				FilePath:     filePath,
+				Markdown:     cached,
+				OriginalSize: fileInfo.Size(),
+				PageCount:    pageCount,
+			},
+		}
+		return tool.NewTextResult(t.formatPDFMarkdownResult(result)), nil
 	}
 
 	// Docling path: convert to markdown.
@@ -550,6 +603,19 @@ func (t *Tool) readDoclingFile(
 
 	ext := strings.ToLower(filepath.Ext(filePath))
 	format := strings.TrimPrefix(ext, ".")
+
+	if cached := sidecarMarkdown(filePath, fileInfo); cached != "" {
+		result := &FileReadResult{
+			Type: FileTypeDocling,
+			Docling: &DoclingFileResult{
+				FilePath:     filePath,
+				Format:       format,
+				Markdown:     cached,
+				OriginalSize: fileInfo.Size(),
+			},
+		}
+		return tool.NewTextResult(t.formatDoclingResult(result)), nil
+	}
 
 	if t.doclingClient == nil || !t.doclingClient.IsAvailable(ctx) {
 		return tool.NewTextResult(fmt.Sprintf(
