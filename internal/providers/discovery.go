@@ -170,6 +170,16 @@ func DiscoverProviders(ctx context.Context) []DiscoveryResult {
 				return false, ev, fmt.Sprintf("Set %s to enable", ev)
 			},
 		},
+		{
+			types.APIProviderKimi, "Kimi (Moonshot AI)", "api_key",
+			func() (bool, string, string) {
+				ev := providerEnvVar(types.APIProviderKimi)
+				if os.Getenv(ev) != "" {
+					return true, ev, "Kimi K3 — 1M-token context, vision, strong agentic coding"
+				}
+				return false, ev, fmt.Sprintf("Set %s to enable", ev)
+			},
+		},
 	}
 
 	results := make([]DiscoveryResult, 0, len(candidates))

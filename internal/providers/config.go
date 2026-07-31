@@ -181,6 +181,23 @@ func DefaultConfigs() map[types.APIProvider]*Config {
 				"medium": "mistral-small-latest",
 			},
 		},
+		types.APIProviderKimi: {
+			Provider: types.APIProviderKimi,
+			// International endpoint. api.moonshot.cn is a separate China
+			// mainland deployment with its own accounts/billing - keys from
+			// one region 401 on the other's endpoint, so this must not be
+			// guessed from the "kimi"/"moonshot" name alone.
+			BaseURL: "https://api.moonshot.ai/v1",
+			ModelAliasMapping: map[string]string{
+				"k3":       "kimi-k3",
+				"default":  "kimi-k3",
+				"k2.7":     "kimi-k2.7-code",
+				"k2.7code": "kimi-k2.7-code",
+				"code":     "kimi-k2.7-code",
+				"k2.6":     "kimi-k2.6",
+				"k2.5":     "kimi-k2.5",
+			},
+		},
 		types.APIProviderCodex: {
 			Provider: types.APIProviderCodex,
 			BaseURL:  "https://chatgpt.com/backend-api/codex",
@@ -348,7 +365,7 @@ func (c *Config) GetEndpoint(model string) string {
 	case types.APIProviderAnthropic, types.APIProviderVertex, types.APIProviderFoundry:
 		return c.GetBaseURL() + "/v1/messages"
 
-	case types.APIProviderOpenAI, types.APIProviderOpenRouter, types.APIProviderMiniMax, types.APIProviderZAi, types.APIProviderMistral, types.APIProviderDeepSeek, types.APIProviderOpenCode:
+	case types.APIProviderOpenAI, types.APIProviderOpenRouter, types.APIProviderMiniMax, types.APIProviderZAi, types.APIProviderMistral, types.APIProviderDeepSeek, types.APIProviderOpenCode, types.APIProviderKimi:
 		return c.GetBaseURL() + "/chat/completions"
 
 	case types.APIProviderGemini:
@@ -386,6 +403,7 @@ var defaultBaseURLs = map[types.APIProvider]string{
 	types.APIProviderWorkersAI:  "https://workers.ai/v1/chat",
 	types.APIProviderFoundry:    "https://your-resource.services.ai.azure.com/anthropic/v1",
 	types.APIProviderMistral:    "https://api.mistral.ai/v1",
+	types.APIProviderKimi:       "https://api.moonshot.ai/v1",
 	types.APIProviderCodex:      "https://chatgpt.com/backend-api/codex",
 	types.APIProviderDeepSeek:   "https://api.deepseek.com/v1",
 	types.APIProviderOpenCode:   "https://opencode.ai/zen/v1",
@@ -450,6 +468,11 @@ func ValidateProviderConfig(config *Config) error {
 	case types.APIProviderMistral:
 		if config.APIKey == "" {
 			return fmt.Errorf("Mistral requires MISTRAL_API_KEY to be set")
+		}
+
+	case types.APIProviderKimi:
+		if config.APIKey == "" {
+			return fmt.Errorf("Kimi requires KIMI_API_KEY to be set")
 		}
 
 	case types.APIProviderDeepSeek:
