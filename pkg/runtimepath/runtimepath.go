@@ -8,6 +8,11 @@ import (
 
 const EnvRuntimeRoot = "SESHAT_RUNTIME_ROOT"
 
+// "electron/" under the runtime root is reserved: Electron-based consumers
+// (e.g. seshat-ai's desktop app) put their userData/sessionData/logs/
+// crashDumps there by convention. No Go code in this SDK reads or writes
+// under it, so there's no helper for it here - don't repurpose that name.
+
 // ExpandTilde replaces a leading "~" with the current user's home directory.
 // Go's filepath package does not do this automatically.
 func ExpandTilde(path string) string {
@@ -77,14 +82,6 @@ func PlansDir(root string) string { return Join(root, "plans") }
 func TasksDir(root string) string { return Join(root, "tmp", "tasks") }
 
 func BashTasksDir(root string) string { return Join(root, "tmp", "bash-tasks") }
-
-func ElectronUserDataDir(root string) string { return Join(root, "electron", "user-data") }
-
-func ElectronSessionDataDir(root string) string { return Join(root, "electron", "session-data") }
-
-func ElectronLogsDir(root string) string { return Join(root, "electron", "logs") }
-
-func ElectronCrashDumpsDir(root string) string { return Join(root, "electron", "crash-dumps") }
 
 // ─── Session-scoped directories ───────────────────────────────────────────────
 //

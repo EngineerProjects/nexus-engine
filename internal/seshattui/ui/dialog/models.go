@@ -486,7 +486,13 @@ func (m *Models) setProviderItems() error {
 		}
 
 		if len(validRecentItems) != len(recentItems) {
-			// FIXME: Does this need to be here? Is it mutating the config during a read?
+			// Self-healing prune: some persisted "recent" entries no longer match a
+			// known provider/model (removed/renamed upstream) and were filtered out
+			// of validRecentItems above. Persist the cleaned list so the dialog
+			// doesn't keep re-filtering the same dead entries on every open, and so
+			// they stop showing up (if this list is ever surfaced elsewhere).
+			// Safe to do here: setProviderItems only runs on dialog construction and
+			// on the Large/Small model-type tab switch, not on every keystroke/render.
 			if err := m.com.Workspace.SetConfigField(config.ScopeGlobal, fmt.Sprintf("recent_models.%s", selectedType), validRecentItems); err != nil {
 				return fmt.Errorf("failed to update recent models: %w", err)
 			}
