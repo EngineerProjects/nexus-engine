@@ -66,6 +66,7 @@ These servers work out of the box with Seshat:
 | `@modelcontextprotocol/server-notion` | Read and write Notion pages |
 | `@modelcontextprotocol/server-docker` | Manage Docker containers and images |
 | `@modelcontextprotocol/server-brave-search` | Web search via Brave |
+| [`docling-mcp`](https://github.com/docling-project/docling-mcp) | Explicit OCR/scan/audio conversion via a running docling-serve instance - see `scripts/docling.mcp.json.example`. `read_file` already handles DOCX/PPTX/XLSX and text-layer PDFs natively without this; reach for it when a document genuinely needs OCR or transcription. |
 
 Any MCP-compatible server works. The full registry is at [modelcontextprotocol.io](https://modelcontextprotocol.io).
 

@@ -2,11 +2,11 @@
   "mcpServers": {
     "docling": {
       "type": "stdio",
-      "command": "python3",
-      "args": ["/absolute/path/to/seshat/scripts/docling-mcp-bridge.py"],
+      "command": "uvx",
+      "args": ["--from", "docling-mcp", "docling-mcp-server", "--transport", "stdio"],
       "env": {
-        "DOCLING_URL": "http://localhost:5001",
-        "DOCLING_TIMEOUT": "120"
+        "DOCLING_MCP_SERVICE_URL": "http://localhost:5001",
+        "DOCLING_MCP_CONVERSION_MODE": "remote"
       }
     }
   }
