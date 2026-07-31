@@ -97,6 +97,42 @@ func ReadFileInRange(
 	return content, lineCount, totalLines, totalBytes, readBytes, mtimeMs, nil
 }
 
+// CountFileLines counts a text file's total lines without buffering their
+// content, so a tail request (see readTextFile's negative-offset handling)
+// can resolve "N lines before EOF" to an absolute line number cheaply even
+// for large files.
+func CountFileLines(ctx context.Context, filePath string) (int, error) {
+	select {
+	case <-ctx.Done():
+		return 0, fmt.Errorf("file read cancelled: %w", ctx.Err())
+	default:
+	}
+
+	file, err := os.Open(filePath)
+	if err != nil {
+		return 0, fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	buf := make([]byte, 0, 64*1024)
+	scanner.Buffer(buf, 1024*1024)
+
+	count := 0
+	for scanner.Scan() {
+		select {
+		case <-ctx.Done():
+			return 0, fmt.Errorf("file read cancelled: %w", ctx.Err())
+		default:
+		}
+		count++
+	}
+	if err := scanner.Err(); err != nil {
+		return 0, fmt.Errorf("error counting lines: %w", err)
+	}
+	return count, nil
+}
+
 // ReadFileWithCancellation reads entire file content with cancellation support
 func ReadFileWithCancellation(ctx context.Context, filePath string) ([]byte, error) {
 	// Check for cancellation at start

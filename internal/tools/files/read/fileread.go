@@ -94,7 +94,7 @@ func (t *Tool) Definition() tool.Definition {
 				},
 				"offset": map[string]any{
 					"type":        "number",
-					"description": "The line number to start reading from (1-indexed). Only provide if the file is too large to read at once.",
+					"description": "The line number to start reading from (1-indexed). A negative value counts from the end of the file instead - e.g. offset=-50 starts 50 lines before EOF, useful for tailing logs or large outputs without knowing the total line count. Only provide if the file is too large to read at once.",
 				},
 				"limit": map[string]any{
 					"type":        "number",
@@ -275,12 +275,11 @@ func (t *Tool) readTextFile(
 	// Parse offset and limit
 	offset := 0
 	limit := t.config.DefaultLimit
+	requestedOffset := 0
 
 	if offsetVal, ok := parsed["offset"].(float64); ok {
-		offset = int(offsetVal)
-		if offset < 1 {
-			offset = 1
-		}
+		requestedOffset = int(offsetVal)
+		offset = requestedOffset
 	}
 
 	if limitVal, ok := parsed["limit"].(float64); ok {
@@ -296,6 +295,24 @@ func (t *Tool) readTextFile(
 	// Check file size
 	if fileInfo.Size() > t.config.MaxFileSize {
 		return tool.NewErrorResult(fmt.Errorf("file too large (%d bytes, max %d bytes)", fileInfo.Size(), t.config.MaxFileSize)), nil
+	}
+
+	if requestedOffset < 0 {
+		// Tail mode: resolve "N lines before EOF" to an absolute 1-indexed
+		// line number. A file shorter than |offset| just reads from line 1.
+		totalLines, err := CountFileLines(ctx, filePath)
+		if err != nil {
+			if ctx.Err() != nil {
+				return tool.NewErrorResult(fmt.Errorf("file read cancelled")), nil
+			}
+			return tool.NewErrorResult(fmt.Errorf("failed to count lines for tail offset: %w", err)), nil
+		}
+		offset = totalLines + requestedOffset + 1
+		if offset < 1 {
+			offset = 1
+		}
+	} else if offset < 1 {
+		offset = 1
 	}
 
 	// Read file with cancellation support
@@ -906,9 +923,9 @@ func (t *Tool) ValidateInput(ctx context.Context, input map[string]any) (map[str
 	for k, v := range input {
 		normalized[k] = v
 	}
-	if offset, ok := normalized["offset"].(float64); ok && offset < 0 {
-		normalized["offset"] = float64(0)
-	}
+	// A negative offset is meaningful (tail-from-end, see readTextFile) and
+	// is passed through as-is; only readTextFile resolves it against the
+	// file's actual line count.
 	return normalized, nil
 }
 

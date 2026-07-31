@@ -108,30 +108,27 @@ func (t *WriteStdinTool) Call(
 		return tool.NewErrorResult(fmt.Errorf("write_stdin: %w", err)), nil
 	}
 
-	// Wait for output.
-	select {
-	case <-ctx.Done():
+	// Wait for output, returning as soon as the process looks like it's back
+	// at a prompt (idle, waiting for the next input) instead of always
+	// paying the full wait_ms - see pollForOutput.
+	newOutput, finalStatus := pollForOutput(ctx, mgr, taskID, reader, time.Duration(waitMs)*time.Millisecond)
+	if ctx.Err() != nil {
 		return tool.NewErrorResult(fmt.Errorf("cancelled while waiting for output")), nil
-	case <-time.After(time.Duration(waitMs) * time.Millisecond):
-	}
-
-	// Read new output.
-	newOutput, err := reader.ReadOutput()
-	if err != nil {
-		return tool.NewErrorResult(fmt.Errorf("read new output: %w", err)), nil
 	}
 
 	task := mgr.GetTask(taskID)
 	status := "running"
-	if task != nil {
-		switch task.GetStatus() {
-		case TaskStatusCompleted:
+	switch finalStatus {
+	case TaskStatusCompleted:
+		if task != nil {
 			status = fmt.Sprintf("completed (exit %d)", task.GetExitCode())
-		case TaskStatusKilled:
-			status = "killed"
-		case TaskStatusTimeout:
-			status = "timed out"
+		} else {
+			status = "completed"
 		}
+	case TaskStatusKilled:
+		status = "killed"
+	case TaskStatusTimeout:
+		status = "timed out"
 	}
 
 	if newOutput == "" {

@@ -168,19 +168,19 @@ func (m *BackgroundTaskManager) StartBackgroundTask(
 func (m *BackgroundTaskManager) waitForTask(task *BackgroundTask) {
 	defer close(task.done)
 
-	// Close the stdin pipe so the subprocess receives EOF if it reads stdin.
-	// This must happen before Wait(), otherwise Wait may block on a pending read.
-	task.mu.Lock()
-	pipe := task.stdinPipe
-	task.stdinPipe = nil
-	task.mu.Unlock()
-	if pipe != nil {
-		pipe.Close()
-	}
-
+	// Do NOT close the stdin pipe here before Wait(): this goroutine starts
+	// the instant the task launches, so closing it up front handed every
+	// interactive process EOF on stdin within microseconds of starting,
+	// before write_stdin ever got a chance to write anything - the process
+	// would see an immediately-closed stdin and exit (or read empty input)
+	// long before any real interaction could happen. cmd.Wait() already
+	// closes the StdinPipe pipe itself once the process has actually exited
+	// (see the os/exec docs for StdinPipe), so no manual close is needed -
+	// this just waits for the real exit.
 	err := task.Process.Wait()
 
 	task.mu.Lock()
+	task.stdinPipe = nil
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
 			task.ExitCode = status.ExitStatus()
