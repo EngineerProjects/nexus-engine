@@ -284,6 +284,12 @@ func (e *Tool) Call(
 	} else {
 		actualOldString = findActualString(normalizedOriginalContent, normalizedOldString)
 		if actualOldString == "" {
+			if match, ok := findFuzzyMatch(normalizedOriginalContent, normalizedOldString); ok {
+				return tool.NewErrorResult(fmt.Errorf(
+					"old_string not found in file: %s\n\nClosest match in the file (%.0f%% similar):\n%s\n\nDiff vs your old_string ({-in your old_string, not in the file-} / {+in the file, not in your old_string+}):\n%s",
+					filePath, match.Similarity*100, match.Text, charDiff(normalizedOldString, match.Text),
+				)), nil
+			}
 			return tool.NewErrorResult(fmt.Errorf("old_string not found in file: %s", filePath)), nil
 		}
 

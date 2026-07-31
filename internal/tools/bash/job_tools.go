@@ -4,12 +4,49 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/KPO-Tech/seshat/internal/tools/contract"
 	tool "github.com/KPO-Tech/seshat/internal/tools/registry"
 	"github.com/KPO-Tech/seshat/internal/tools/schema"
 	"github.com/KPO-Tech/seshat/internal/types"
 )
+
+const jobOutputMaxTimeoutMs = 60_000
+
+// applyLineOffset slices content by line the same way read_file's offset
+// does: positive = start at that 1-indexed line, negative = start that many
+// lines before the end (tail), 0 = unchanged. Out-of-range values clamp
+// rather than error - a job's buffered output is a live, growing thing, not
+// a fixed file, so "give me what exists" is more useful than a hard failure.
+func applyLineOffset(content string, offset int) string {
+	if offset == 0 || content == "" {
+		return content
+	}
+	// Buffered job output almost always ends in "\n" (the last command's
+	// trailing newline). Splitting that directly would produce a spurious
+	// empty final "line", throwing off both the line count used for
+	// negative/tail offsets and the last real line returned.
+	trailingNewline := strings.HasSuffix(content, "\n")
+	trimmed := strings.TrimSuffix(content, "\n")
+	lines := strings.Split(trimmed, "\n")
+	n := len(lines)
+	start := offset - 1
+	if offset < 0 {
+		start = n + offset
+	}
+	if start < 0 {
+		start = 0
+	}
+	if start >= n {
+		return ""
+	}
+	result := strings.Join(lines[start:], "\n")
+	if trailingNewline {
+		result += "\n"
+	}
+	return result
+}
 
 var _ contract.Tool = (*JobOutputTool)(nil)
 var _ contract.Tool = (*JobKillTool)(nil)
@@ -26,7 +63,7 @@ func (t *JobOutputTool) Definition() tool.Definition {
 	return tool.Definition{
 		Name:        "job_output",
 		DisplayName: "Get Job Output",
-		Description: "Read the latest buffered stdout/stderr from a background bash job. Returns the output since the last call plus the current job status.",
+		Description: "Read buffered stdout/stderr from a background bash job, plus its current status. With timeout_ms set, waits for new output (returning early if the job looks idle at a prompt, or finishes) instead of returning immediately.",
 		Category:    "filesystem",
 		InputSchema: schema.FromMap(map[string]any{
 			"type":     "object",
@@ -38,8 +75,12 @@ func (t *JobOutputTool) Definition() tool.Definition {
 				},
 				"timeout_ms": map[string]any{
 					"type":        "integer",
-					"description": "Wait up to this many milliseconds for the job to produce output (default 0 = return immediately).",
+					"description": fmt.Sprintf("Wait up to this many milliseconds for the job to produce output (default 0 = return immediately, max %d). Returns early if the job looks like it's idle at an interactive prompt, or finishes.", jobOutputMaxTimeoutMs),
 					"default":     0,
+				},
+				"offset": map[string]any{
+					"type":        "integer",
+					"description": "1-indexed line to start the returned output from. Negative counts back from the end (e.g. -50 = last 50 lines) - useful for tailing a chatty job's log without re-reading everything. Omit/0 for the full buffered output.",
 				},
 			},
 		}),
@@ -71,15 +112,40 @@ func (t *JobOutputTool) Call(
 		return tool.CallResult{Content: fmt.Sprintf("error creating reader: %v", readerErr)}, nil
 	}
 
-	out, err := reader.ReadOutput()
-	if err != nil {
-		return tool.CallResult{Content: fmt.Sprintf("error reading output: %v", err)}, nil
+	timeoutMs := 0
+	if v, ok := input.Parsed["timeout_ms"].(float64); ok && v > 0 {
+		timeoutMs = int(v)
+		if timeoutMs > jobOutputMaxTimeoutMs {
+			timeoutMs = jobOutputMaxTimeoutMs
+		}
 	}
 
-	status := taskStatusString(task.Status)
+	var out string
+	var finalStatus TaskStatus
+	if timeoutMs > 0 {
+		out, finalStatus = pollForOutput(ctx, mgr, jobID, reader, time.Duration(timeoutMs)*time.Millisecond)
+		if ctx.Err() != nil {
+			return tool.CallResult{Content: "error: cancelled while waiting for output"}, nil
+		}
+	} else {
+		var err error
+		out, err = reader.ReadOutput()
+		if err != nil {
+			return tool.CallResult{Content: fmt.Sprintf("error reading output: %v", err)}, nil
+		}
+		finalStatus = task.GetStatus()
+	}
+
+	if offsetVal, ok := input.Parsed["offset"].(float64); ok {
+		out = applyLineOffset(out, int(offsetVal))
+	}
+
+	status := taskStatusString(finalStatus)
 	exitInfo := ""
-	if task.Status == TaskStatusCompleted || task.Status == TaskStatusKilled || task.Status == TaskStatusTimeout {
-		exitInfo = fmt.Sprintf("\nexit_code: %d", task.ExitCode)
+	if finalStatus == TaskStatusCompleted || finalStatus == TaskStatusKilled || finalStatus == TaskStatusTimeout {
+		if refreshed := mgr.GetTask(jobID); refreshed != nil {
+			exitInfo = fmt.Sprintf("\nexit_code: %d", refreshed.GetExitCode())
+		}
 	}
 
 	result := fmt.Sprintf("job_id: %s\nstatus: %s%s", jobID, status, exitInfo)
