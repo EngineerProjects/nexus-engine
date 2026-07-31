@@ -678,6 +678,17 @@ func (t *Tool) readDoclingFile(
 		if ctx.Err() != nil {
 			return tool.NewErrorResult(fmt.Errorf("file read cancelled")), nil
 		}
+		if ext == ".wav" || ext == ".mp3" {
+			// docling-serve's ASR pipeline needs openai-whisper, which is not
+			// part of its default install - a docling-serve instance set up
+			// via the plain `docling-serve` package (no DOCLING_EXTRAS=asr)
+			// fails this conversion internally and surfaces it as an opaque
+			// "task result not found" style error, not "whisper is missing".
+			return tool.NewErrorResult(fmt.Errorf(
+				"docling conversion failed for %s: %w\n\nAudio transcription requires docling-serve's ASR extra (openai-whisper), which is not installed by default. Reinstall it with DOCLING_EXTRAS=asr, e.g.: DOCLING_EXTRAS=asr ./scripts/install-python-env.sh",
+				strings.ToUpper(format), err,
+			)), nil
+		}
 		return tool.NewErrorResult(fmt.Errorf("docling conversion failed for %s: %w", strings.ToUpper(format), err)), nil
 	}
 
