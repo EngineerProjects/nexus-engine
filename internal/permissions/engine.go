@@ -1052,14 +1052,28 @@ func isAlwaysSafeTool(name string) bool {
 	switch name {
 	case
 		// File read-only
-		"read_file", "grep", "glob", "tree", "list_directory",
+		"read_file", "grep", "glob", "tree", "list_directory", "get_file_metadata",
+		"notebook_read",
 		// Web read-only
 		"web_search", "web_fetch", "web_crawl", "web_map",
 		"scholarly_search", "wikipedia",
+		// Social media read-only (write/publish variants - devto_publish,
+		// hn's own submit if it ever exists, reddit's post-creation, twitter's
+		// tweet - are deliberately absent; only the read/search/fetch tools
+		// belong here)
+		"devto_feed", "devto_article", "hn_stories", "hn_item", "hn_search",
+		"reddit_search", "reddit_posts", "twitter_search",
 		// MCP read-only
 		"mcp_list_resources", "mcp_read_resource",
-		// Utility / introspection
+		// Utility / introspection - all verified IsReadOnly:true,
+		// RequiresPermission:false, IsDestructive:false with a trivial
+		// Passthrough/AllowWithInput CheckPermissions, same profile as
+		// get_file_metadata above (audited 2026-08-01 after get_file_metadata
+		// itself was found missing from this list despite matching it).
 		"tool_search", "lsp", "monitor", "skill",
+		"get_config", "get_goal", "rag_search", "repo_map", "workflow_draft",
+		"seshat_list_skills", "seshat_read_skill", "seshat_validate_skill",
+		"list_agents", "wait_agent",
 		// User interaction (never destructive — agent explicitly needs human input)
 		"ask_user_question",
 		// Plan-mode transitions have no side effect beyond switching the
