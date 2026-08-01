@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -53,14 +54,23 @@ func Load(root string) (Profile, error) {
 
 func Save(root string, profile Profile) error {
 	profile = Normalize(profile)
-	if err := os.MkdirAll(filepath.Dir(runtimepath.CompanionPath(root)), 0o700); err != nil {
+	path := runtimepath.CompanionPath(root)
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(profile, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(runtimepath.CompanionPath(root), data, 0o600)
+	tmp := path + "." + strconv.Itoa(os.Getpid()) + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
 }
 
 func Normalize(profile Profile) Profile {

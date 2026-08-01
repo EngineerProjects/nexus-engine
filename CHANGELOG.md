@@ -9,6 +9,19 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.2] — 2026-08-01
+
+### Fixed
+- `internal/agent/goal`: the durable goal store wrote through to its SQLite backend on every plain `Get()` (not just on mutation), and held its mutex during backend I/O in `Update`/`RecordTokenUsage` — under an active goal the runner reads goal state up to three times per agent turn, so this added needless write amplification and let one session's backend latency stall unrelated sessions through the shared lock. Reads are now lock-scoped snapshots that never write, and mutation methods release the lock before calling the backend. Returned `Goal` values are now always defensive clones, so callers can no longer mutate store-internal state without going through the mutex.
+- `internal/seshattui/ui/dialog/doctor.go`, `internal/seshattui/ui/model/ui.go`: opening or refreshing the TUI's Doctor dialog ran `DoctorReport()` (SQLite ping, `git`/`uv` subprocess checks) synchronously inside Bubble Tea's event loop, freezing the whole UI for as long as those checks took. Both paths now dispatch through a `tea.Cmd`.
+- `cmd/cli/background.go`: `seshat run --bg --name X` had a TOCTOU race — the name-availability check only scanned already-saved session files, but a new session isn't saved until after its process starts, so two concurrent launches with the same name could both pass the check and leave two live sessions sharing one name. Name reservation is now atomic (`O_EXCL`) and happens before the process starts.
+- `pkg/companion`: `companion.Save` wrote profile data with a plain truncate-and-write, so a crash mid-write could corrupt `companion.json` and turn the next load into a hard error instead of falling back to defaults. It now writes to a temp file and renames it into place, matching the pattern already used for background session metadata.
+
+### Notes
+- The `v1.2.0` GitHub release was cut prematurely from a feature branch before it merged to `main` and has been marked as a superseded pre-release; `v1.2.1` was the first correct build of the feature set below.
+
+## [1.2.1] — 2026-08-01
+
 ### Added
 - Goals created through `create_goal` are now persisted in the SQLite session database when `SessionSQLitePath` is configured, and successful session turns record token usage against the active goal so `get_goal`/`update_goal` can survive client/session restart.
 - TUI chat now replaces hidden `task_create`/`task_update` plan tool calls with a compact "Plan" task checklist block, keeping plan progress visible without exposing internal task tools.

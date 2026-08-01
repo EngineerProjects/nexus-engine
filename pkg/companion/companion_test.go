@@ -1,6 +1,7 @@
 package companion
 
 import (
+	"os"
 	"strings"
 	"testing"
 
@@ -53,5 +54,27 @@ func TestSystemPromptDisabled(t *testing.T) {
 	profile.Enabled = false
 	if got := SystemPrompt(profile); got != "" {
 		t.Fatalf("expected disabled companion prompt to be empty, got %q", got)
+	}
+}
+
+func TestSaveWritesAtomicallyLeavingNoTempFiles(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv(runtimepath.EnvRuntimeRoot, root)
+	profile := DefaultProfile()
+	profile.Name = "Atomic"
+	if err := Save("", profile); err != nil {
+		t.Fatalf("Save failed: %v", err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatalf("read dir: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Fatalf("expected no leftover temp file after Save, found %q", e.Name())
+		}
+	}
+	if _, err := os.Stat(runtimepath.CompanionPath("")); err != nil {
+		t.Fatalf("expected companion file to exist: %v", err)
 	}
 }

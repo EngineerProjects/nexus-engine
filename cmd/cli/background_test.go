@@ -95,3 +95,47 @@ func TestRunBackgroundPSPrintsTrackedSessions(t *testing.T) {
 		}
 	}
 }
+
+func TestClaimBackgroundNameRejectsConcurrentClaimant(t *testing.T) {
+	t.Setenv(runtimepath.EnvRuntimeRoot, t.TempDir())
+	if err := claimBackgroundName("race", "bg-first"); err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	if err := claimBackgroundName("race", "bg-second"); err == nil {
+		t.Fatal("expected second concurrent claim to fail")
+	}
+}
+
+func TestClaimBackgroundNameReclaimsStaleClaim(t *testing.T) {
+	t.Setenv(runtimepath.EnvRuntimeRoot, t.TempDir())
+	now := time.Now().UTC().Format(time.RFC3339)
+	if err := saveBackgroundSession(backgroundSession{
+		ID:        "bg-dead",
+		Name:      "reusable",
+		PID:       999999,
+		Status:    backgroundStatusKilled,
+		StartedAt: now,
+		UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("save terminal session: %v", err)
+	}
+	if err := claimBackgroundName("reusable", "bg-dead"); err != nil {
+		t.Fatalf("claim before any reservation exists: %v", err)
+	}
+	if err := claimBackgroundName("reusable", "bg-new"); err != nil {
+		t.Fatalf("expected stale claim from a terminal session to be reclaimable: %v", err)
+	}
+}
+
+func TestClaimBackgroundNameDoesNotStealInFlightClaim(t *testing.T) {
+	t.Setenv(runtimepath.EnvRuntimeRoot, t.TempDir())
+	// No session file has been saved for "bg-pending" yet, simulating the
+	// window between claimBackgroundName and saveBackgroundSession in
+	// runBackgroundSession. A second claimant must not be able to steal it.
+	if err := claimBackgroundName("pending", "bg-pending"); err != nil {
+		t.Fatalf("first claim: %v", err)
+	}
+	if err := claimBackgroundName("pending", "bg-other"); err == nil {
+		t.Fatal("expected in-flight claim to block a second claimant")
+	}
+}
