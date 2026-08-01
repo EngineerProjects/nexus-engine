@@ -1006,6 +1006,21 @@ When issuing multiple commands:
 - Use ; only when you need to run commands sequentially but do not care if earlier commands fail.
 - Do not use newlines to separate commands.
 
+## Interactive processes and REPLs
+
+For anything that benefits from staying resident between calls — iterative data analysis with pandas/numpy, testing an API from a Node.js REPL, driving a database CLI (mysql/psql), or stepping through a debugger — don't shell out to a fresh one-shot command per step (e.g. re-running "python3 -c '...'" from scratch each time, re-reading and re-parsing the same file every call). Instead, keep one interpreter process alive and talk to it:
+
+1. run_in_background: true to start the interpreter itself (e.g. "python3 -i", "node", "R --no-save", "mysql -u root") and get back a task_id. The process keeps running after this call returns.
+2. write_stdin (task_id, input) to feed it code or commands, one call at a time. State — imported modules, variables, loaded dataframes, an open DB connection — persists across calls because the interpreter never exits between them. It waits for new output and returns as soon as the process looks idle at its next prompt, or the process finishes.
+3. job_output (task_id) to check buffered output later, e.g. after a long computation you didn't wait on. job_kill (task_id) when done with it.
+
+Example — analysing a CSV with pandas without re-reading it on every step:
+- run_in_background bash: "python3 -i"
+- write_stdin: "import pandas as pd; df = pd.read_csv('sales.csv')"
+- write_stdin: "df.groupby('region')['revenue'].sum()"
+
+The loaded dataframe stays in memory for every subsequent write_stdin call on that task_id, instead of being reloaded from disk each time.
+
 Git safety:
 - Prefer to create a new commit rather than amending an existing commit.
 - Before running destructive operations, consider whether there is a safer alternative.
