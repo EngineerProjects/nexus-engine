@@ -9,6 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.3] — 2026-08-01
+
+### Fixed
+- `internal/permissions/engine.go`: `get_file_metadata` (a read-only `stat()` call, `RequiresPermission: false` in its own definition) was missing from `isAlwaysSafeTool`, so in Auto permission mode every call went through the two-stage LLM classifier instead of being heuristically allowed — extra API calls per check, and, observed live, an incorrect "blocking for safety" deny when the classifier's own response failed to parse, compounding with provider rate limits.
+- Same file: audited every registered tool for the same gap and added 19 more with an identical, individually-verified safety profile (`IsReadOnly: true`, `RequiresPermission: false`, `IsDestructive: false`, and a trivial passthrough `CheckPermissions` with no conditional logic) — `notebook_read`; the read/search/fetch tools in `devto`, `hackernews`, `reddit`, `twitter` (their write/publish siblings are correctly left requiring classification); `get_config`, `get_goal`, `rag_search`, `repo_map`, `workflow_draft`; `seshat_list_skills`, `seshat_read_skill`, `seshat_validate_skill`; `list_agents`, `wait_agent`.
+
+### Notes
+- Deliberately not touched in this pass, pending a follow-up decision: the browser read tools (`browser_snapshot`/`browser_screenshot`/etc. — mechanically read-only, but a live browser session can be authenticated into real accounts, a different risk profile than a filesystem read) and `job_output`/`task_get`/`task_list`/`task_output`/`monitor` (heterogeneous `CheckPermissions` implementations — `task_get` has real conditional deny logic that `isAlwaysSafeTool`'s short-circuit would bypass entirely, unlike the trivial-passthrough tools added above).
+
 ## [1.2.2] — 2026-08-01
 
 ### Fixed
