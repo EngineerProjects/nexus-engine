@@ -75,6 +75,11 @@ func BackendDBPath(root string) string { return Join(root, "seshat.db") }
 
 func HNSWDataDir(root string) string { return Join(root, "data", "hnsw") }
 
+// RAGSQLiteDBPath is the fallback vector store used when the embedded HNSW
+// backend isn't available on the current platform (Windows - see
+// internal/vector/hnsw_store_windows.go).
+func RAGSQLiteDBPath(root string) string { return Join(root, "data", "rag.sqlite3") }
+
 func SessionStoreDir(root string) string { return Join(root, "data", "sessions") }
 
 func PlansDir(root string) string { return Join(root, "plans") }

@@ -175,3 +175,121 @@ func TestIngestTool_Success(t *testing.T) {
 		t.Errorf("expected 3 chunks in output, got: %s", res.Content)
 	}
 }
+
+func TestIngestTool_ReingestSameFilenameReplacesInsteadOfDuplicating(t *testing.T) {
+	svc := newTestService(t)
+	tl := ragtool.NewIngestTool(svc)
+
+	first := callTool(t, tl, map[string]any{
+		"corpus_id": "kb",
+		"filename":  "doc.txt",
+		"text":      "version one",
+	})
+	if first.IsError() {
+		t.Fatalf("first ingest failed: %s", first.Content)
+	}
+
+	second := callTool(t, tl, map[string]any{
+		"corpus_id": "kb",
+		"filename":  "doc.txt",
+		"text":      "version two",
+	})
+	if second.IsError() {
+		t.Fatalf("second ingest failed: %s", second.Content)
+	}
+
+	records, err := svc.Vectors().Get(context.Background(), "kb", nil)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected file_id defaulting to filename to replace the record in place, got %d records: %+v", len(records), records)
+	}
+	if !strings.Contains(records[0].Text, "version two") {
+		t.Errorf("expected the replaced record to hold the new text, got: %q", records[0].Text)
+	}
+}
+
+// --- DeleteTool ---
+
+func TestDeleteTool_Definition(t *testing.T) {
+	tl := ragtool.NewDeleteTool(nil)
+	def := tl.Definition()
+	if def.Name != ragtool.ToolDeleteName {
+		t.Errorf("Name = %q", def.Name)
+	}
+	if def.IsReadOnly {
+		t.Error("expected IsReadOnly=false for delete tool")
+	}
+	if !def.IsDestructive {
+		t.Error("expected IsDestructive=true for delete tool")
+	}
+}
+
+func TestDeleteTool_DisabledWhenNilService(t *testing.T) {
+	tl := ragtool.NewDeleteTool(nil)
+	if tl.IsEnabled() {
+		t.Error("expected IsEnabled=false when service is nil")
+	}
+}
+
+func TestDeleteTool_MissingCorpusID(t *testing.T) {
+	tl := ragtool.NewDeleteTool(newTestService(t))
+	res := callTool(t, tl, map[string]any{})
+	if !res.IsError() {
+		t.Error("expected error result when corpus_id missing")
+	}
+}
+
+func TestDeleteTool_WholeCorpus(t *testing.T) {
+	svc := newTestService(t)
+	ingestTl := ragtool.NewIngestTool(svc)
+	callTool(t, ingestTl, map[string]any{
+		"corpus_id": "kb", "filename": "a.txt", "text": "alpha",
+	})
+	callTool(t, ingestTl, map[string]any{
+		"corpus_id": "kb", "filename": "b.txt", "text": "beta",
+	})
+
+	deleteTl := ragtool.NewDeleteTool(svc)
+	res := callTool(t, deleteTl, map[string]any{"corpus_id": "kb"})
+	if res.IsError() {
+		t.Fatalf("delete failed: %s", res.Content)
+	}
+
+	has, err := svc.Vectors().HasNamespace(context.Background(), "kb")
+	if err != nil {
+		t.Fatalf("HasNamespace: %v", err)
+	}
+	if has {
+		t.Error("expected corpus to be empty after whole-corpus delete")
+	}
+}
+
+func TestDeleteTool_SingleFile(t *testing.T) {
+	svc := newTestService(t)
+	ingestTl := ragtool.NewIngestTool(svc)
+	callTool(t, ingestTl, map[string]any{
+		"corpus_id": "kb", "filename": "a.txt", "text": "alpha",
+	})
+	callTool(t, ingestTl, map[string]any{
+		"corpus_id": "kb", "filename": "b.txt", "text": "beta",
+	})
+
+	deleteTl := ragtool.NewDeleteTool(svc)
+	res := callTool(t, deleteTl, map[string]any{"corpus_id": "kb", "file_id": "a.txt"})
+	if res.IsError() {
+		t.Fatalf("delete failed: %s", res.Content)
+	}
+
+	records, err := svc.Vectors().Get(context.Background(), "kb", nil)
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if len(records) != 1 {
+		t.Fatalf("expected only b.txt's record to remain, got %d: %+v", len(records), records)
+	}
+	if !strings.Contains(records[0].Text, "beta") {
+		t.Errorf("expected remaining record to be b.txt's, got: %q", records[0].Text)
+	}
+}
