@@ -128,6 +128,12 @@ func (s *Store) SetBackend(backend Backend) {
 // Set creates or replaces the goal for sessionID.
 // Always sets status=active and resets usage counters.
 // Mirrors Codex's ThreadGoalSetParams (new objective → create).
+//
+// Returns a clone, not the Store's internal pointer - a caller mutating the
+// returned Goal's exported fields directly (instead of going through
+// Update/RecordTokenUsage) would otherwise corrupt Store state without
+// holding s.mu, a data race independent of whether it actually happens
+// today. Same reasoning applies to Get and Update below.
 func (s *Store) Set(sessionID, objective string, tokenBudget *int64) *Goal {
 	now := time.Now()
 	g := &Goal{
@@ -147,10 +153,19 @@ func (s *Store) Set(sessionID, objective string, tokenBudget *int64) *Goal {
 	if backend != nil {
 		_ = backend.SaveGoal(g)
 	}
-	return g
+	return g.clone()
 }
 
 // Get returns the current goal for sessionID, or false if none.
+//
+// This is a pure read: it does not write to the backend. TimeUsedSeconds is
+// always derived from CreatedAt/startedAt at read time (LoadGoal recomputes
+// it the same way on a fresh load), so there is nothing to persist here -
+// it never was a stored column. Get used to re-save the goal on every call
+// purely to refresh this already-derived field; with a persistent backend
+// wired in, that turned every read into a synchronous SQLite write, and
+// this is called multiple times per agent turn whenever a goal is active
+// (see internal/agent/runner.go's goal-continuation checks).
 func (s *Store) Get(sessionID string) (*Goal, bool) {
 	s.mu.RLock()
 	g, ok := s.goals[sessionID]
@@ -162,24 +177,25 @@ func (s *Store) Get(sessionID string) (*Goal, bool) {
 			return nil, false
 		}
 		s.mu.Lock()
-		s.goals[sessionID] = loaded
-		g = loaded
+		if existing, already := s.goals[sessionID]; already {
+			// Lost the race to another goroutine loading the same session -
+			// use its copy so every reader converges on one backing pointer.
+			g = existing
+		} else {
+			s.goals[sessionID] = loaded
+			g = loaded
+		}
 		ok = true
 		s.mu.Unlock()
 	}
 	if !ok {
 		return nil, false
 	}
-	// Update computed TimeUsedSeconds on read.
-	s.mu.Lock()
-	g.TimeUsedSeconds = int64(time.Since(g.startedAt).Seconds())
-	updated := g.clone()
-	backend = s.backend
-	s.mu.Unlock()
-	if backend != nil {
-		_ = backend.SaveGoal(updated)
-	}
-	return g, true
+	s.mu.RLock()
+	snapshot := g.clone()
+	s.mu.RUnlock()
+	snapshot.TimeUsedSeconds = int64(time.Since(snapshot.startedAt).Seconds())
+	return snapshot, true
 }
 
 // Update mutates the goal's status and/or objective.
@@ -187,9 +203,9 @@ func (s *Store) Get(sessionID string) (*Goal, bool) {
 // Mirrors Codex's ThreadGoalSetParams (update existing goal).
 func (s *Store) Update(sessionID string, newStatus *Status, newObjective *string) (*Goal, bool) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	g, ok := s.goals[sessionID]
 	if !ok {
+		s.mu.Unlock()
 		return nil, false
 	}
 	if newStatus != nil {
@@ -200,10 +216,16 @@ func (s *Store) Update(sessionID string, newStatus *Status, newObjective *string
 	}
 	g.UpdatedAt = time.Now().UnixMilli()
 	g.TimeUsedSeconds = int64(time.Since(g.startedAt).Seconds())
-	if s.backend != nil {
-		_ = s.backend.SaveGoal(g)
+	snapshot := g.clone()
+	backend := s.backend
+	s.mu.Unlock()
+	// Backend I/O happens after releasing s.mu (like Set/Get above) so one
+	// session's disk write can't block every other session's goal
+	// operations - the Store's mutex is process-wide, not per-session.
+	if backend != nil {
+		_ = backend.SaveGoal(snapshot)
 	}
-	return g, true
+	return snapshot, true
 }
 
 // RecordTokenUsage adds tokens to the running counter and
@@ -211,9 +233,9 @@ func (s *Store) Update(sessionID string, newStatus *Status, newObjective *string
 // Called by the runner after each turn.
 func (s *Store) RecordTokenUsage(sessionID string, tokens int64) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	g, ok := s.goals[sessionID]
 	if !ok {
+		s.mu.Unlock()
 		return
 	}
 	g.TokensUsed += tokens
@@ -221,8 +243,12 @@ func (s *Store) RecordTokenUsage(sessionID string, tokens int64) {
 		g.Status = StatusBudgetLimited
 		g.UpdatedAt = time.Now().UnixMilli()
 	}
-	if s.backend != nil {
-		_ = s.backend.SaveGoal(g)
+	snapshot := g.clone()
+	backend := s.backend
+	s.mu.Unlock()
+	// See Update's comment: backend I/O deliberately happens outside s.mu.
+	if backend != nil {
+		_ = backend.SaveGoal(snapshot)
 	}
 }
 
