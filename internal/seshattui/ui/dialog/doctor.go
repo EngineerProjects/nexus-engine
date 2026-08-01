@@ -56,8 +56,12 @@ func (d *Doctor) HandleMsg(msg tea.Msg) Action {
 		case key.Matches(msg, d.keyMap.Close):
 			return ActionClose{}
 		case key.Matches(msg, d.keyMap.Refresh):
-			report := d.com.Workspace.DoctorReport(context.Background())
-			return ActionOpenDoctor{Report: report}
+			// DoctorReport does blocking I/O (SQLite ping, git/uv subprocess
+			// calls); defer it via ActionCmd so it runs off the Bubble Tea
+			// event loop instead of freezing the UI while it runs.
+			return ActionCmd{Cmd: func() tea.Msg {
+				return ActionOpenDoctor{Report: d.com.Workspace.DoctorReport(context.Background())}
+			}}
 		}
 	}
 	var cmd tea.Cmd

@@ -3805,7 +3805,13 @@ func (m *UI) openDialog(id string) tea.Cmd {
 			cmds = append(cmds, cmd)
 		}
 	case dialog.DoctorID:
-		m.dialog.OpenDialog(dialog.NewDoctor(m.com, m.com.Workspace.DoctorReport(context.Background())))
+		// DoctorReport does blocking I/O (SQLite ping, git/uv subprocess
+		// calls). Run it off the Bubble Tea event loop and open the dialog
+		// once ActionOpenDoctor lands, same as the "r" refresh keybinding
+		// in dialog.Doctor.HandleMsg.
+		cmds = append(cmds, func() tea.Msg {
+			return dialog.ActionOpenDoctor{Report: m.com.Workspace.DoctorReport(context.Background())}
+		})
 	case dialog.FilePickerID:
 		if cmd := m.openFilesDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
