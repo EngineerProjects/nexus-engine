@@ -344,11 +344,14 @@ func buildRAGService(hnswDir, sqliteFallbackPath string) *sdk.RAGService {
 
 	svc := internalrag.NewService(artifacts, store, embForService, chunker)
 
-	// LangSearchReranker no-ops (IsConfigured() == false) when
-	// LANGSEARCH_API_KEY isn't set, so it's always safe to attach. It scores
+	// reranker.NewFromEnv prefers a self-hosted RAG_RERANK_URL (e.g. a local
+	// TEI/vLLM instance serving BAAI/bge-reranker-v2-m3 - free, no API key,
+	// no external network call) and falls back to LangSearch's hosted API
+	// when only LANGSEARCH_API_KEY is set. No-ops (IsConfigured() == false)
+	// when neither is configured, so it's always safe to attach. It scores
 	// raw text against the query text, not embeddings, so it works in
 	// vectorless mode too.
-	svc.SetReranker(reranker.NewLangSearchReranker())
+	svc.SetReranker(reranker.NewFromEnv())
 
 	return svc
 }
