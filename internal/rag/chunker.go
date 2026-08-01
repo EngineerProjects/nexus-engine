@@ -29,17 +29,21 @@ func (c ParagraphChunker) Split(_ context.Context, text string) ([]Chunk, error)
 		if part == "" {
 			continue
 		}
-		for len(part) > maxChars {
+		// Slice by rune, not byte: a byte-index cut can land inside a
+		// multi-byte UTF-8 character (e.g. accented French text) and
+		// corrupt it at the chunk boundary.
+		runes := []rune(part)
+		for len(runes) > maxChars {
 			chunks = append(chunks, Chunk{
-				Text:     strings.TrimSpace(part[:maxChars]),
+				Text:     strings.TrimSpace(string(runes[:maxChars])),
 				Position: position,
 			})
 			position++
-			part = strings.TrimSpace(part[maxChars:])
+			runes = []rune(strings.TrimSpace(string(runes[maxChars:])))
 		}
-		if part != "" {
+		if len(runes) > 0 {
 			chunks = append(chunks, Chunk{
-				Text:     part,
+				Text:     string(runes),
 				Position: position,
 			})
 			position++

@@ -768,6 +768,21 @@ Skills are exposed as `/skill-name` slash commands in the TUI.
 | `RAG_EMBEDDING_MODEL` | Model identifier for embeddings |
 | `RAG_EMBEDDING_PROVIDER` | Provider name |
 
+Not configured → RAG still works in vectorless (BM25/keyword) mode, no
+embedding provider required. See `internal/rag/service.go`.
+
+**Reranker config** (optional second-pass reranking after retrieval):
+
+| Env var | Purpose |
+|---|---|
+| `RAG_RERANK_URL` | Full rerank endpoint URL - point this at a self-hosted server (e.g. a local TEI or vLLM instance serving `BAAI/bge-reranker-v2-m3`) for a free alternative requiring no API key |
+| `RAG_RERANK_API_KEY` | Optional; self-hosted servers usually don't need one |
+| `RAG_RERANK_MODEL` | Model name; ignored by single-model servers such as TEI |
+| `LANGSEARCH_API_KEY` | Fallback: used for LangSearch's hosted rerank API when `RAG_RERANK_URL` isn't set |
+
+Neither configured → search results are returned in vector/BM25 order with
+no reranking pass. See `internal/rag/reranker/reranker.go`.
+
 ---
 
 ## 13. MCP Servers

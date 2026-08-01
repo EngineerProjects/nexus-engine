@@ -45,6 +45,7 @@ func TestProviderAdapterDispatch(t *testing.T) {
 		{"codex", types.APIProviderCodex, "gpt-codex", "/responses", [2]string{"Authorization", "Bearer k"}, "input"},
 		{"deepseek", types.APIProviderDeepSeek, "deepseek-chat", "/chat/completions", [2]string{"Authorization", "Bearer k"}, "messages"},
 		{"opencode", types.APIProviderOpenCode, "claude-sonnet-4", "/chat/completions", [2]string{"Authorization", "Bearer k"}, "messages"},
+		{"kimi", types.APIProviderKimi, "kimi-k3", "/chat/completions", [2]string{"Authorization", "Bearer k"}, "messages"},
 	}
 
 	for _, tc := range cases {
@@ -115,6 +116,54 @@ func TestAdapterForProviderDefault(t *testing.T) {
 		if _, ok := adapterForProvider(p).(anthropicAdapter); !ok {
 			t.Errorf("adapterForProvider(%s) = %T, want anthropicAdapter", p, adapterForProvider(p))
 		}
+	}
+}
+
+// TestKimiProviderConfig locks in the pieces that make the Kimi provider
+// actually usable at runtime, not just listed in the catalog. Before this,
+// types.APIProviderKimi had a registry.go catalog entry (so it showed up in
+// provider-picker UIs) but no config.go Config, no adapter mapping (silently
+// fell through to the Anthropic wire format), and no env var mapping -
+// selecting it would have failed outright.
+func TestKimiProviderConfig(t *testing.T) {
+	cfg := GetProviderConfig(types.APIProviderKimi)
+	if cfg == nil {
+		t.Fatal("GetProviderConfig(kimi) = nil, want a Config (kimi has no working request path without one)")
+	}
+	// International endpoint - api.moonshot.cn is a distinct China mainland
+	// deployment with separate accounts/billing; an international key 401s
+	// against it and vice versa.
+	if cfg.BaseURL != "https://api.moonshot.ai/v1" {
+		t.Errorf("kimi BaseURL = %q, want the international https://api.moonshot.ai/v1 endpoint", cfg.BaseURL)
+	}
+
+	if _, ok := adapterForProvider(types.APIProviderKimi).(openAICompatAdapter); !ok {
+		t.Errorf("adapterForProvider(kimi) = %T, want openAICompatAdapter (Kimi's API is OpenAI-compatible)", adapterForProvider(types.APIProviderKimi))
+	}
+
+	if got := providerEnvVar(types.APIProviderKimi); got != "KIMI_API_KEY" {
+		t.Errorf("providerEnvVar(kimi) = %q, want KIMI_API_KEY", got)
+	}
+
+	if got := DefaultBaseURL("kimi"); got != "https://api.moonshot.ai" {
+		t.Errorf(`DefaultBaseURL("kimi") = %q, want the international https://api.moonshot.ai endpoint`, got)
+	}
+
+	info, ok := GetProviderInfo(types.APIProviderKimi)
+	if !ok {
+		t.Fatal("GetProviderInfo(kimi) not found")
+	}
+	found := false
+	for _, m := range info.Models {
+		if m.Identifier == "kimi-k3" {
+			found = true
+			if m.ContextWindow <= 0 {
+				t.Error("kimi-k3 has no context window set")
+			}
+		}
+	}
+	if !found {
+		t.Error(`expected "kimi-k3" in the Kimi model catalog`)
 	}
 }
 

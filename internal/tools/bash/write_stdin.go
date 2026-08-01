@@ -26,7 +26,7 @@ func (t *WriteStdinTool) Definition() tool.Definition {
 	return tool.Definition{
 		Name:        "write_stdin",
 		DisplayName: "Write to Stdin",
-		Description: "Write text to a running background task's stdin. Use this to drive interactive programs (REPLs, debuggers, prompts). Returns any new output produced after writing.",
+		Description: "Write text to a running background task's stdin and read back what it produces. Use this to drive interactive programs — REPLs (python3 -i, node, R --no-save), debuggers, database CLIs (mysql, psql), or any prompt-driven tool started with bash's run_in_background. State (variables, imports, an open connection) persists across calls since the process stays alive between them. Waits for new output, returning as soon as the process looks idle at its next prompt or exits - not a fixed delay.",
 		Category:    "filesystem",
 		InputSchema: schema.FromMap(map[string]any{
 			"type": "object",
@@ -108,30 +108,27 @@ func (t *WriteStdinTool) Call(
 		return tool.NewErrorResult(fmt.Errorf("write_stdin: %w", err)), nil
 	}
 
-	// Wait for output.
-	select {
-	case <-ctx.Done():
+	// Wait for output, returning as soon as the process looks like it's back
+	// at a prompt (idle, waiting for the next input) instead of always
+	// paying the full wait_ms - see pollForOutput.
+	newOutput, finalStatus := pollForOutput(ctx, mgr, taskID, reader, time.Duration(waitMs)*time.Millisecond)
+	if ctx.Err() != nil {
 		return tool.NewErrorResult(fmt.Errorf("cancelled while waiting for output")), nil
-	case <-time.After(time.Duration(waitMs) * time.Millisecond):
-	}
-
-	// Read new output.
-	newOutput, err := reader.ReadOutput()
-	if err != nil {
-		return tool.NewErrorResult(fmt.Errorf("read new output: %w", err)), nil
 	}
 
 	task := mgr.GetTask(taskID)
 	status := "running"
-	if task != nil {
-		switch task.GetStatus() {
-		case TaskStatusCompleted:
+	switch finalStatus {
+	case TaskStatusCompleted:
+		if task != nil {
 			status = fmt.Sprintf("completed (exit %d)", task.GetExitCode())
-		case TaskStatusKilled:
-			status = "killed"
-		case TaskStatusTimeout:
-			status = "timed out"
+		} else {
+			status = "completed"
 		}
+	case TaskStatusKilled:
+		status = "killed"
+	case TaskStatusTimeout:
+		status = "timed out"
 	}
 
 	if newOutput == "" {

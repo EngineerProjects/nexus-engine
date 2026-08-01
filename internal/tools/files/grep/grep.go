@@ -387,8 +387,24 @@ func (g *Tool) doGrep(
 	return result, nil
 }
 
-// buildRipgrepArgs builds command line arguments for ripgrep
+// buildRipgrepArgs builds command line arguments for ripgrep.
+// Thin wrapper over the package-level BuildRipgrepArgs, which doesn't
+// depend on any Tool state - factored out so other search tools (e.g.
+// search_start's streaming/cancellable search) can build an identical rg
+// invocation without duplicating this logic or depending on this Tool type.
 func (g *Tool) buildRipgrepArgs(
+	pattern string,
+	searchPath string,
+	params map[string]any,
+	outputMode OutputMode,
+) []string {
+	return BuildRipgrepArgs(pattern, searchPath, params, outputMode)
+}
+
+// BuildRipgrepArgs builds command line arguments for ripgrep from the same
+// param shape the grep tool accepts (pattern, path, glob, -i, -n, -A/-B/-C,
+// context, type, multiline, sort_by_mtime) plus the desired output mode.
+func BuildRipgrepArgs(
 	pattern string,
 	searchPath string,
 	params map[string]any,

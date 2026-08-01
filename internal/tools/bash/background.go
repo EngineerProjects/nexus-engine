@@ -165,22 +165,98 @@ func (m *BackgroundTaskManager) StartBackgroundTask(
 	return task, nil
 }
 
+// StartBackgroundTaskArgv starts a background task from an argv array
+// (executable + arguments) instead of a shell command string - no shell
+// involved, so callers building a command from untrusted/dynamic pieces
+// (e.g. a search pattern that might contain quotes or shell metacharacters)
+// don't need to shell-quote anything. Otherwise identical to
+// StartBackgroundTask: same task bookkeeping, output file, stdin pipe, and
+// process-group handling, and it goes through commandWithLandlock the same
+// way (that function wraps any executable+args pair, not just `sh -c`).
+func (m *BackgroundTaskManager) StartBackgroundTaskArgv(
+	ctx context.Context,
+	name string,
+	args []string,
+	workingDir string,
+	env []string,
+) (*BackgroundTask, error) {
+	if err := m.Init(); err != nil {
+		return nil, fmt.Errorf("init task dir: %w", err)
+	}
+
+	taskID, err := generateTaskID()
+	if err != nil {
+		return nil, fmt.Errorf("generate task id: %w", err)
+	}
+	taskPath := filepath.Join(m.taskDir, taskID+".output")
+
+	task := &BackgroundTask{
+		ID:          taskID,
+		Command:     name + " " + strings.Join(args, " "),
+		Output:      NewTaskOutput(taskPath),
+		Status:      TaskStatusRunning,
+		StartTime:   time.Now(),
+		done:        make(chan struct{}),
+		cleanupStop: make(chan struct{}),
+	}
+
+	file, err := os.Create(taskPath)
+	if err != nil {
+		return nil, fmt.Errorf("create output file: %w", err)
+	}
+
+	cmdPath, cmdArgs, sandboxEnv, _ := commandWithLandlock(name, args, workingDir)
+	cmd := exec.CommandContext(ctx, cmdPath, cmdArgs...)
+	if workingDir != "" {
+		cmd.Dir = workingDir
+	}
+	cmd.Env = append(env, sandboxEnv...)
+	cmd.SysProcAttr = newProcessGroupAttr()
+	cmd.Stdout = file
+	cmd.Stderr = file
+
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		file.Close()
+		os.Remove(taskPath)
+		return nil, fmt.Errorf("create stdin pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		stdinPipe.Close()
+		file.Close()
+		os.Remove(taskPath)
+		return nil, fmt.Errorf("start command: %w", err)
+	}
+	file.Close()
+
+	task.stdinPipe = stdinPipe
+	task.Process = cmd
+	m.mu.Lock()
+	m.tasks[taskID] = task
+	m.mu.Unlock()
+
+	go m.waitForTask(task)
+
+	return task, nil
+}
+
 func (m *BackgroundTaskManager) waitForTask(task *BackgroundTask) {
 	defer close(task.done)
 
-	// Close the stdin pipe so the subprocess receives EOF if it reads stdin.
-	// This must happen before Wait(), otherwise Wait may block on a pending read.
-	task.mu.Lock()
-	pipe := task.stdinPipe
-	task.stdinPipe = nil
-	task.mu.Unlock()
-	if pipe != nil {
-		pipe.Close()
-	}
-
+	// Do NOT close the stdin pipe here before Wait(): this goroutine starts
+	// the instant the task launches, so closing it up front handed every
+	// interactive process EOF on stdin within microseconds of starting,
+	// before write_stdin ever got a chance to write anything - the process
+	// would see an immediately-closed stdin and exit (or read empty input)
+	// long before any real interaction could happen. cmd.Wait() already
+	// closes the StdinPipe pipe itself once the process has actually exited
+	// (see the os/exec docs for StdinPipe), so no manual close is needed -
+	// this just waits for the real exit.
 	err := task.Process.Wait()
 
 	task.mu.Lock()
+	task.stdinPipe = nil
 	if exitErr, ok := err.(*exec.ExitError); ok {
 		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
 			task.ExitCode = status.ExitStatus()

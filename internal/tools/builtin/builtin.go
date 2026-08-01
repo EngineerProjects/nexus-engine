@@ -7,13 +7,17 @@ import (
 	agentsTool "github.com/KPO-Tech/seshat/internal/tools/agents"
 	automationTool "github.com/KPO-Tech/seshat/internal/tools/automation"
 	bashTool "github.com/KPO-Tech/seshat/internal/tools/bash"
+	doclingTool "github.com/KPO-Tech/seshat/internal/tools/files/docling"
+	docxTool "github.com/KPO-Tech/seshat/internal/tools/files/docx"
 	editTool "github.com/KPO-Tech/seshat/internal/tools/files/edit"
+	excelTool "github.com/KPO-Tech/seshat/internal/tools/files/excel"
 	fsTool "github.com/KPO-Tech/seshat/internal/tools/files/fs"
 	globTool "github.com/KPO-Tech/seshat/internal/tools/files/glob"
 	grepTool "github.com/KPO-Tech/seshat/internal/tools/files/grep"
 	patchTool "github.com/KPO-Tech/seshat/internal/tools/files/patch"
+	pdfwriteTool "github.com/KPO-Tech/seshat/internal/tools/files/pdfwrite"
 	fileReadTool "github.com/KPO-Tech/seshat/internal/tools/files/read"
-	readURLTool "github.com/KPO-Tech/seshat/internal/tools/files/read_url"
+	searchsessionTool "github.com/KPO-Tech/seshat/internal/tools/files/searchsession"
 	writeTool "github.com/KPO-Tech/seshat/internal/tools/files/write"
 	gitTool "github.com/KPO-Tech/seshat/internal/tools/git"
 	calculatorTool "github.com/KPO-Tech/seshat/internal/tools/math/calculator"
@@ -31,6 +35,7 @@ import (
 	devtoTool "github.com/KPO-Tech/seshat/internal/tools/social/devto"
 	hnTool "github.com/KPO-Tech/seshat/internal/tools/social/hackernews"
 	askUserQuestionTool "github.com/KPO-Tech/seshat/internal/tools/special/ask_user"
+	configTool "github.com/KPO-Tech/seshat/internal/tools/special/config"
 	fimtool "github.com/KPO-Tech/seshat/internal/tools/special/fim"
 	goalTool "github.com/KPO-Tech/seshat/internal/tools/special/goal"
 	lspTool "github.com/KPO-Tech/seshat/internal/tools/special/lsp"
@@ -83,7 +88,7 @@ func RegisterBuiltinToolsWithConfig(reg *tool.Registry, config *Config) error {
 	fileReadConfig := fileReadTool.DefaultToolConfig()
 	fileReadConfig.DoclingURL = config.DoclingURL
 
-	readURLConfig := readURLTool.Config{DoclingURL: config.DoclingURL}
+	doclingConfig := doclingTool.Config{DoclingURL: config.DoclingURL}
 
 	bashConfig := bashTool.DefaultToolConfig()
 	bashConfig.WorkingDirectory = config.WorkingDir
@@ -97,11 +102,17 @@ func RegisterBuiltinToolsWithConfig(reg *tool.Registry, config *Config) error {
 		bashTool.NewJobOutputTool(),
 		bashTool.NewJobKillTool(),
 		fileReadTool.NewTool(fileReadConfig),
-		readURLTool.NewTool(readURLConfig),
+		doclingTool.NewReadURLTool(doclingConfig),
+		doclingTool.NewConvertTool(doclingConfig, config.WorkingDir),
 		globTool.NewGlobTool(config.WorkingDir),
 		grepTool.NewGrepTool(config.WorkingDir),
+		searchsessionTool.NewTool(config.WorkingDir),
 		writeTool.NewWriteTool(config.WorkingDir),
 		editTool.NewEditTool(config.WorkingDir),
+		excelTool.NewTool(config.WorkingDir),
+		docxTool.NewTool(config.WorkingDir),
+		pdfwriteTool.NewTool(config.WorkingDir),
+		configTool.NewTool(config.WorkingDir),
 		patchTool.NewApplyPatchTool(config.WorkingDir),
 		fsTool.NewCreateDirectoryTool(config.WorkingDir),
 		fsTool.NewGetMetadataTool(config.WorkingDir),
@@ -155,6 +166,7 @@ func RegisterBuiltinToolsWithConfig(reg *tool.Registry, config *Config) error {
 		worktreeTool.NewExitWorktreeTool(worktreeTool.DefaultExitWorktreeConfig()),
 		ragTool.NewSearchTool(config.RAGService),
 		ragTool.NewIngestTool(config.RAGService),
+		ragTool.NewDeleteTool(config.RAGService),
 		multimediaTool.NewImageGenTool(config.ImageGenerator),
 		multimediaTool.NewTTSTool(config.TTSGenerator),
 		multimediaTool.NewSTTTool(config.STTTranscriber),

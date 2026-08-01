@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/KPO-Tech/seshat/internal/docling"
+	"github.com/KPO-Tech/seshat/internal/officetext"
+	"github.com/KPO-Tech/seshat/internal/pdftext"
 	"github.com/KPO-Tech/seshat/internal/sandbox"
 	tool "github.com/KPO-Tech/seshat/internal/tools/registry"
 	"github.com/KPO-Tech/seshat/internal/tools/schema"
@@ -92,7 +94,7 @@ func (t *Tool) Definition() tool.Definition {
 				},
 				"offset": map[string]any{
 					"type":        "number",
-					"description": "The line number to start reading from (1-indexed). Only provide if the file is too large to read at once.",
+					"description": "The line number to start reading from (1-indexed). A negative value counts from the end of the file instead - e.g. offset=-50 starts 50 lines before EOF, useful for tailing logs or large outputs without knowing the total line count. Only provide if the file is too large to read at once.",
 				},
 				"limit": map[string]any{
 					"type":        "number",
@@ -273,12 +275,11 @@ func (t *Tool) readTextFile(
 	// Parse offset and limit
 	offset := 0
 	limit := t.config.DefaultLimit
+	requestedOffset := 0
 
 	if offsetVal, ok := parsed["offset"].(float64); ok {
-		offset = int(offsetVal)
-		if offset < 1 {
-			offset = 1
-		}
+		requestedOffset = int(offsetVal)
+		offset = requestedOffset
 	}
 
 	if limitVal, ok := parsed["limit"].(float64); ok {
@@ -294,6 +295,24 @@ func (t *Tool) readTextFile(
 	// Check file size
 	if fileInfo.Size() > t.config.MaxFileSize {
 		return tool.NewErrorResult(fmt.Errorf("file too large (%d bytes, max %d bytes)", fileInfo.Size(), t.config.MaxFileSize)), nil
+	}
+
+	if requestedOffset < 0 {
+		// Tail mode: resolve "N lines before EOF" to an absolute 1-indexed
+		// line number. A file shorter than |offset| just reads from line 1.
+		totalLines, err := CountFileLines(ctx, filePath)
+		if err != nil {
+			if ctx.Err() != nil {
+				return tool.NewErrorResult(fmt.Errorf("file read cancelled")), nil
+			}
+			return tool.NewErrorResult(fmt.Errorf("failed to count lines for tail offset: %w", err)), nil
+		}
+		offset = totalLines + requestedOffset + 1
+		if offset < 1 {
+			offset = 1
+		}
+	} else if offset < 1 {
+		offset = 1
 	}
 
 	// Read file with cancellation support
@@ -465,6 +484,26 @@ func (t *Tool) readPDFFile(
 		return tool.NewTextResult(t.formatPDFMarkdownResult(result)), nil
 	}
 
+	// Native text-layer extraction: most PDFs (reports, exports, invoices)
+	// carry a real text layer and need no OCR at all. Try this before ever
+	// reaching for docling - it's free (no process/network dependency) and
+	// instant. A Sparse result (little/no text relative to page count)
+	// means this is likely a scan, so fall through to docling for OCR.
+	if data, readErr := os.ReadFile(filePath); readErr == nil {
+		if native, extractErr := pdftext.Extract(data); extractErr == nil && !native.Sparse {
+			result := &FileReadResult{
+				Type: FileTypePDFMarkdown,
+				PDFMarkdown: &PDFMarkdownFileResult{
+					FilePath:     filePath,
+					Markdown:     native.Text,
+					OriginalSize: fileInfo.Size(),
+					PageCount:    native.PageCount,
+				},
+			}
+			return tool.NewTextResult(t.formatPDFMarkdownResult(result)), nil
+		}
+	}
+
 	// Docling path: convert to markdown.
 	if t.doclingClient != nil && t.doclingClient.IsAvailable(ctx) {
 		conversion, err := t.doclingClient.ConvertFile(ctx, filePath)
@@ -605,6 +644,7 @@ func (t *Tool) readDoclingFile(
 	format := strings.TrimPrefix(ext, ".")
 
 	if cached := sidecarMarkdown(filePath, fileInfo); cached != "" {
+		RecordExternalRead(filePath, fileInfo.ModTime(), cached, true)
 		result := &FileReadResult{
 			Type: FileTypeDocling,
 			Docling: &DoclingFileResult{
@@ -615,6 +655,34 @@ func (t *Tool) readDoclingFile(
 			},
 		}
 		return tool.NewTextResult(t.formatDoclingResult(result)), nil
+	}
+
+	// DOCX/PPTX/XLSX are zipped XML, not scanned documents - no ML/OCR is
+	// needed to read them, so try the native, dependency-free extractor
+	// before ever reaching for docling-serve. WAV/MP3 (officetext.Extract
+	// returns ok=false for those) still need docling for transcription.
+	if officetext.SupportedExtensions[ext] {
+		data, readErr := os.ReadFile(filePath)
+		if readErr != nil {
+			return tool.NewErrorResult(fmt.Errorf("failed to read %s: %w", strings.ToUpper(format), readErr)), nil
+		}
+		if markdown, ok, extractErr := officetext.Extract(filePath, data); ok && extractErr == nil {
+			RecordExternalRead(filePath, fileInfo.ModTime(), markdown, true)
+			result := &FileReadResult{
+				Type: FileTypeDocling,
+				Docling: &DoclingFileResult{
+					FilePath:     filePath,
+					Format:       format,
+					Markdown:     markdown,
+					OriginalSize: fileInfo.Size(),
+				},
+			}
+			return tool.NewTextResult(t.formatDoclingResult(result)), nil
+		}
+		// Fell through: parse failure or no extractable text (e.g. a slide
+		// deck that's all images). Try docling next since it may still get
+		// something out of it (OCR on embedded images, etc.); if docling
+		// isn't available either, the message below reports both attempts.
 	}
 
 	if t.doclingClient == nil || !t.doclingClient.IsAvailable(ctx) {
@@ -629,6 +697,17 @@ func (t *Tool) readDoclingFile(
 		if ctx.Err() != nil {
 			return tool.NewErrorResult(fmt.Errorf("file read cancelled")), nil
 		}
+		if ext == ".wav" || ext == ".mp3" {
+			// docling-serve's ASR pipeline needs openai-whisper, which is not
+			// part of its default install - a docling-serve instance set up
+			// via the plain `docling-serve` package (no DOCLING_EXTRAS=asr)
+			// fails this conversion internally and surfaces it as an opaque
+			// "task result not found" style error, not "whisper is missing".
+			return tool.NewErrorResult(fmt.Errorf(
+				"docling conversion failed for %s: %w\n\nAudio transcription requires docling-serve's ASR extra (openai-whisper), which is not installed by default. Reinstall it with DOCLING_EXTRAS=asr, e.g.: DOCLING_EXTRAS=asr ./scripts/install-python-env.sh",
+				strings.ToUpper(format), err,
+			)), nil
+		}
 		return tool.NewErrorResult(fmt.Errorf("docling conversion failed for %s: %w", strings.ToUpper(format), err)), nil
 	}
 
@@ -641,6 +720,7 @@ func (t *Tool) readDoclingFile(
 		})
 	}
 
+	RecordExternalRead(filePath, fileInfo.ModTime(), conversion.Markdown, true)
 	result := &FileReadResult{
 		Type: FileTypeDocling,
 		Docling: &DoclingFileResult{
@@ -846,9 +926,9 @@ func (t *Tool) ValidateInput(ctx context.Context, input map[string]any) (map[str
 	for k, v := range input {
 		normalized[k] = v
 	}
-	if offset, ok := normalized["offset"].(float64); ok && offset < 0 {
-		normalized["offset"] = float64(0)
-	}
+	// A negative offset is meaningful (tail-from-end, see readTextFile) and
+	// is passed through as-is; only readTextFile resolves it against the
+	// file's actual line count.
 	return normalized, nil
 }
 

@@ -56,6 +56,7 @@ const (
 	ProviderModeYou        ProviderMode = "you"
 	ProviderModeLinkup     ProviderMode = "linkup"
 	ProviderModeMojeek     ProviderMode = "mojeek"
+	ProviderModeDuckDuckGo ProviderMode = "duckduckgo"
 )
 
 // IsValidMode checks if the given mode is valid.
@@ -73,6 +74,7 @@ func IsValidMode(mode string) bool {
 		"you":        true,
 		"linkup":     true,
 		"mojeek":     true,
+		"duckduckgo": true,
 	}
 	return validModes[mode]
 }

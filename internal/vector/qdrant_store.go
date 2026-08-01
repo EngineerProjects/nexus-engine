@@ -131,7 +131,7 @@ func (s *QdrantStore) Search(ctx context.Context, query Query) ([]SearchResult, 
 		return nil, fmt.Errorf("qdrant search: namespace is required")
 	}
 	if len(query.Vector) == 0 {
-		return nil, fmt.Errorf("qdrant search: vector is required")
+		return nil, fmt.Errorf("qdrant search: vectorless (BM25-only) search is not supported by this backend - use the sqlite, memory, or hnsw backend, or provide a query vector")
 	}
 	topK := query.TopK
 	if topK <= 0 {

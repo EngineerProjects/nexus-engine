@@ -1,102 +1,28 @@
 package reranker
 
-import (
-	"bytes"
-	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
-	"os"
-	"strings"
-	"time"
-)
+import "os"
 
-const langSearchRerankURL = "https://api.langsearch.com/v1/rerank"
-const langSearchRerankModel = "langsearch-reranker-v1"
-
-// LangSearchReranker reranks a set of documents by semantic relevance using
-// the LangSearch free rerank API (langsearch.com — no credit card required).
-type LangSearchReranker struct {
-	apiKey     string
-	httpClient *http.Client
-}
+// LangSearchReranker is HTTPReranker preconfigured for LangSearch's hosted
+// rerank API (langsearch.com - no credit card required for the free tier).
+// Kept as a distinct name for backward compatibility; for a fully free,
+// self-hosted alternative requiring no API key, use New/NewFromEnv with a
+// BaseURL pointing at a local TEI or vLLM instance instead - see
+// reranker.go's package doc.
+type LangSearchReranker = HTTPReranker
 
 // NewLangSearchReranker reads LANGSEARCH_API_KEY from the environment.
 func NewLangSearchReranker() *LangSearchReranker {
 	return NewLangSearchRerankerWithKey(os.Getenv("LANGSEARCH_API_KEY"))
 }
 
+// NewLangSearchRerankerWithKey builds a LangSearch-configured reranker.
+// An empty apiKey produces an unconfigured reranker (IsConfigured() ==
+// false) rather than one pointed at LangSearch with no credentials, since
+// LangSearch's API requires a key - matches the pre-generalization behavior.
 func NewLangSearchRerankerWithKey(apiKey string) *LangSearchReranker {
-	return &LangSearchReranker{
-		apiKey:     strings.TrimSpace(apiKey),
-		httpClient: &http.Client{Timeout: 15 * time.Second},
+	cfg := Config{APIKey: apiKey, Model: langSearchModel}
+	if apiKey != "" {
+		cfg.BaseURL = langSearchBaseURL
 	}
-}
-
-// IsConfigured reports whether an API key is set.
-func (r *LangSearchReranker) IsConfigured() bool {
-	return r.apiKey != ""
-}
-
-// Rerank sends docs to LangSearch and returns their indices sorted by
-// descending relevance score, along with the score for each position.
-// topN caps the returned list; pass 0 to return all.
-func (r *LangSearchReranker) Rerank(ctx context.Context, query string, docs []string, topN int) ([]int, []float32, error) {
-	if !r.IsConfigured() {
-		return nil, nil, fmt.Errorf("langsearch reranker: API key not configured (set LANGSEARCH_API_KEY)")
-	}
-	if len(docs) == 0 {
-		return nil, nil, nil
-	}
-
-	payload := map[string]any{
-		"model":     langSearchRerankModel,
-		"query":     query,
-		"documents": docs,
-	}
-	if topN > 0 {
-		payload["top_n"] = topN
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return nil, nil, fmt.Errorf("langsearch reranker: encode request: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, langSearchRerankURL, bytes.NewReader(body))
-	if err != nil {
-		return nil, nil, err
-	}
-	req.Header.Set("Authorization", "Bearer "+r.apiKey)
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("User-Agent", "SeshatAI-RAG/1.0")
-
-	resp, err := r.httpClient.Do(req)
-	if err != nil {
-		return nil, nil, fmt.Errorf("langsearch reranker: request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 400 {
-		return nil, nil, fmt.Errorf("langsearch reranker: API returned status %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Code    int `json:"code"`
-		Results []struct {
-			Index          int     `json:"index"`
-			RelevanceScore float64 `json:"relevance_score"`
-		} `json:"results"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return nil, nil, fmt.Errorf("langsearch reranker: decode response: %w", err)
-	}
-
-	indices := make([]int, 0, len(result.Results))
-	scores := make([]float32, 0, len(result.Results))
-	for _, item := range result.Results {
-		indices = append(indices, item.Index)
-		scores = append(scores, float32(item.RelevanceScore))
-	}
-	return indices, scores, nil
+	return New(cfg)
 }

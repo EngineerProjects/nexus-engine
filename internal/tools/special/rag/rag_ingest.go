@@ -26,7 +26,7 @@ func (t *IngestTool) Definition() tool.Definition {
 		Name:        ToolIngestName,
 		DisplayName: "RAG Ingest",
 		SearchHint:  IngestHint,
-		Description: "Chunk and embed a text document into a named corpus for later semantic search. Returns the artifact key and chunk count.",
+		Description: "Chunk a text document into a named corpus for later search. Embeds each chunk for semantic search when an embedding provider is configured; otherwise chunks are indexed for keyword/BM25 search instead (still works, no embedder required). Re-ingesting the same file_id (or, absent that, the same filename) replaces its chunks in-place instead of duplicating them. Returns the artifact key and chunk count.",
 		Category:    "rag",
 		InputSchema: schema.FromMap(map[string]any{
 			"type": "object",
@@ -43,6 +43,10 @@ func (t *IngestTool) Definition() tool.Definition {
 					"type":        "string",
 					"description": "Full text content to ingest.",
 				},
+				"file_id": map[string]any{
+					"type":        "string",
+					"description": "Stable identifier for this document within the corpus. Re-ingesting with the same file_id replaces the previous version's chunks instead of creating duplicates. Defaults to filename when omitted.",
+				},
 			},
 			"required": []string{"corpus_id", "filename", "text"},
 		}),
@@ -56,10 +60,12 @@ func (t *IngestTool) Call(ctx context.Context, input tool.CallInput, _ types.Can
 	corpusID, _ := input.Parsed["corpus_id"].(string)
 	filename, _ := input.Parsed["filename"].(string)
 	text, _ := input.Parsed["text"].(string)
+	fileID, _ := input.Parsed["file_id"].(string)
 
 	corpusID = strings.TrimSpace(corpusID)
 	filename = strings.TrimSpace(filename)
 	text = strings.TrimSpace(text)
+	fileID = strings.TrimSpace(fileID)
 
 	if corpusID == "" {
 		return tool.NewErrorResult(fmt.Errorf("corpus_id is required")), nil
@@ -70,9 +76,17 @@ func (t *IngestTool) Call(ctx context.Context, input tool.CallInput, _ types.Can
 	if text == "" {
 		return tool.NewErrorResult(fmt.Errorf("text is required")), nil
 	}
+	// Default file_id to filename so re-ingesting the same filename is
+	// idempotent by default - the caller only needs to pass file_id
+	// explicitly when the same filename legitimately refers to different
+	// documents within one corpus.
+	if fileID == "" {
+		fileID = filename
+	}
 
 	result, err := t.svc.Ingest(ctx, rag.IngestRequest{
 		CorpusID: corpusID,
+		FileID:   fileID,
 		Filename: filename,
 		Text:     text,
 	})
@@ -86,6 +100,7 @@ func (t *IngestTool) Call(ctx context.Context, input tool.CallInput, _ types.Can
 	res := tool.NewJSONResult(map[string]any{
 		"corpus_id":    corpusID,
 		"filename":     filename,
+		"file_id":      fileID,
 		"artifact_key": result.Artifact.Key,
 		"chunks":       result.Chunks,
 	})

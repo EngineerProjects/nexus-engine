@@ -272,6 +272,8 @@ func providerEnvVar(provider types.APIProvider) string {
 		return "ANTHROPIC_FOUNDRY_API_KEY"
 	case types.APIProviderMistral:
 		return "MISTRAL_API_KEY"
+	case types.APIProviderKimi:
+		return "KIMI_API_KEY"
 	case types.APIProviderCodex:
 		return "CODEX_API_KEY"
 	case types.APIProviderDeepSeek:

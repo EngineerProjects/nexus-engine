@@ -15,7 +15,7 @@ import (
 
 const SearchHint = "search the web for current information"
 
-const ToolDescription = `Search the web for current information using a configured search provider. Supports multiple providers (Tavily, Exa, Jina, LangSearch, SearXNG) with automatic fallback. Use WEB_SEARCH_PROVIDER to select a specific provider.
+const ToolDescription = `Search the web for current information. Supports multiple providers (Tavily, Exa, Jina, LangSearch, SearXNG) with automatic fallback, and always works even with none of them configured via a built-in DuckDuckGo fallback that needs no API key. Use WEB_SEARCH_PROVIDER to select a specific provider.
 
 Use this tool when you need current or external information that is not reliably available from repository state alone.
 
@@ -255,9 +255,13 @@ func (t *Tool) IsEnabled() bool {
 // IsAvailableNow returns true when a search provider is actually available
 // at the current moment — either because a per-request runner was injected
 // by the backend (DB-backed providers) or because at least one env-based
-// provider is configured (TAVILY_API_KEY, EXA_API_KEY, etc.).
-// This is the dynamic check used to hide the tool from the model when no
-// provider is configured, without interfering with session map registration.
+// provider is configured (TAVILY_API_KEY, EXA_API_KEY, etc.). In practice
+// this is now always true: the no-API-key DuckDuckGo scraping provider
+// (internal/web/search/providers/duckduckgo.go) is unconditionally
+// "configured", so web_search works out of the box even with nothing set up
+// - configured providers are simply preferred over it (see
+// autoProviderPriority). Kept as a real check rather than hardcoded true in
+// case a future provider needs actual gating.
 func (t *Tool) IsAvailableNow() bool {
 	if t.runner != nil {
 		return true

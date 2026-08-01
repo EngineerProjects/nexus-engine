@@ -1,4 +1,4 @@
-package readurl
+package docling
 
 import (
 	"context"
@@ -15,41 +15,42 @@ import (
 )
 
 const (
-	ToolName    = "read_document_url"
-	DisplayName = "Read Document URL"
-	SearchHint  = "fetch and convert a remote document or web page to markdown"
-	Description = "Fetch a document at a URL and convert it to readable markdown. " +
+	// ReadURLToolName is the name of the read_document_url tool.
+	ReadURLToolName = "read_document_url"
+
+	// ReadURLDisplayName is the display name of the read_document_url tool.
+	ReadURLDisplayName = "Read Document URL"
+
+	// ReadURLSearchHint is a hint for tool search functionality.
+	ReadURLSearchHint = "fetch and convert a remote document or web page to markdown"
+
+	// ReadURLDescription is the description of the read_document_url tool.
+	ReadURLDescription = "Fetch a document at a URL and convert it to readable markdown. " +
 		"Supports PDF, DOCX, PPTX, XLSX, HTML pages, and arXiv papers. " +
 		"Requires docling-serve to be configured. " +
 		"Optionally saves the extracted markdown to a workspace path."
 )
 
-// Tool fetches a remote document and converts it to markdown via docling-serve.
-type Tool struct {
+// ReadURLTool fetches a remote document and converts it to markdown via docling-serve.
+type ReadURLTool struct {
 	doclingClient *docling.Client
 }
 
-// Config holds the configuration for the read_document_url tool.
-type Config struct {
-	// DoclingURL is the base URL of a running docling-serve instance.
-	// When empty the tool registers but always returns a "not configured" message.
-	DoclingURL string
-}
-
-func NewTool(cfg Config) *Tool {
-	t := &Tool{}
+// NewReadURLTool creates a new read_document_url tool.
+func NewReadURLTool(cfg Config) *ReadURLTool {
+	t := &ReadURLTool{}
 	if cfg.DoclingURL != "" {
 		t.doclingClient = docling.NewClient(cfg.DoclingURL)
 	}
 	return t
 }
 
-func (t *Tool) Definition() tool.Definition {
+func (t *ReadURLTool) Definition() tool.Definition {
 	return tool.Definition{
-		Name:        ToolName,
-		DisplayName: DisplayName,
-		SearchHint:  SearchHint,
-		Description: Description,
+		Name:        ReadURLToolName,
+		DisplayName: ReadURLDisplayName,
+		SearchHint:  ReadURLSearchHint,
+		Description: ReadURLDescription,
 		Category:    "filesystem",
 		InputSchema: schema.FromMap(map[string]any{
 			"type": "object",
@@ -72,7 +73,7 @@ func (t *Tool) Definition() tool.Definition {
 	}
 }
 
-func (t *Tool) Call(
+func (t *ReadURLTool) Call(
 	ctx context.Context,
 	input tool.CallInput,
 	permissionCheck types.CanUseToolFn,
@@ -119,10 +120,10 @@ func (t *Tool) Call(
 		}
 	}
 
-	return tool.NewTextResult(format(rawURL, conversion, savedAt)), nil
+	return tool.NewTextResult(formatURLResult(rawURL, conversion, savedAt)), nil
 }
 
-func (t *Tool) ValidateInput(_ context.Context, input map[string]any) (map[string]any, error) {
+func (t *ReadURLTool) ValidateInput(_ context.Context, input map[string]any) (map[string]any, error) {
 	rawURL, ok := input["url"].(string)
 	if !ok || strings.TrimSpace(rawURL) == "" {
 		return nil, fmt.Errorf("url is required")
@@ -133,21 +134,23 @@ func (t *Tool) ValidateInput(_ context.Context, input map[string]any) (map[strin
 	return input, nil
 }
 
-func (t *Tool) CheckPermissions(_ context.Context, input map[string]any, _ tool.ToolUseContext) types.PermissionResult {
+func (t *ReadURLTool) CheckPermissions(_ context.Context, input map[string]any, _ tool.ToolUseContext) types.PermissionResult {
 	return types.Passthrough(input)
 }
 
-func (t *Tool) IsEnabled() bool                                                      { return true }
-func (t *Tool) IsReadOnly(_ map[string]any) bool                                     { return true }
-func (t *Tool) IsConcurrencySafe(_ map[string]any) bool                              { return true }
-func (t *Tool) BackfillInput(_ context.Context, input map[string]any) map[string]any { return input }
-func (t *Tool) FormatResult(data any) string {
+func (t *ReadURLTool) IsEnabled() bool                         { return true }
+func (t *ReadURLTool) IsReadOnly(_ map[string]any) bool        { return true }
+func (t *ReadURLTool) IsConcurrencySafe(_ map[string]any) bool { return true }
+func (t *ReadURLTool) BackfillInput(_ context.Context, input map[string]any) map[string]any {
+	return input
+}
+func (t *ReadURLTool) FormatResult(data any) string {
 	if s, ok := data.(string); ok {
 		return s
 	}
 	return fmt.Sprintf("%v", data)
 }
-func (t *Tool) Description(_ context.Context) (string, error) { return Description, nil }
+func (t *ReadURLTool) Description(_ context.Context) (string, error) { return ReadURLDescription, nil }
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -184,7 +187,7 @@ func resolveWorkspacePath(path string, toolCtx tool.ToolUseContext) string {
 	return filepath.Join(workingDir, path)
 }
 
-func format(sourceURL string, r *docling.ConversionResult, savedAt string) string {
+func formatURLResult(sourceURL string, r *docling.ConversionResult, savedAt string) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("Source: %s\n", sourceURL))
 	if r.PageCount > 0 {
