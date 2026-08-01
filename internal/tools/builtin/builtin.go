@@ -14,6 +14,7 @@ import (
 	globTool "github.com/KPO-Tech/seshat/internal/tools/files/glob"
 	grepTool "github.com/KPO-Tech/seshat/internal/tools/files/grep"
 	patchTool "github.com/KPO-Tech/seshat/internal/tools/files/patch"
+	pdfwriteTool "github.com/KPO-Tech/seshat/internal/tools/files/pdfwrite"
 	fileReadTool "github.com/KPO-Tech/seshat/internal/tools/files/read"
 	readURLTool "github.com/KPO-Tech/seshat/internal/tools/files/read_url"
 	searchsessionTool "github.com/KPO-Tech/seshat/internal/tools/files/searchsession"
@@ -108,6 +109,7 @@ func RegisterBuiltinToolsWithConfig(reg *tool.Registry, config *Config) error {
 		editTool.NewEditTool(config.WorkingDir),
 		excelTool.NewTool(config.WorkingDir),
 		docxTool.NewTool(config.WorkingDir),
+		pdfwriteTool.NewTool(config.WorkingDir),
 		patchTool.NewApplyPatchTool(config.WorkingDir),
 		fsTool.NewCreateDirectoryTool(config.WorkingDir),
 		fsTool.NewGetMetadataTool(config.WorkingDir),
