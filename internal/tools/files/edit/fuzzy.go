@@ -2,45 +2,45 @@ package edit
 
 import "strings"
 
-// fuzzyMatchMinSimilarity is the similarity floor below which a fuzzy match
+// FuzzyMatchMinSimilarity is the similarity floor below which a fuzzy match
 // isn't worth suggesting - a low-similarity "closest" match is more likely
 // to mislead than help.
-const fuzzyMatchMinSimilarity = 0.7
+const FuzzyMatchMinSimilarity = 0.7
 
-// fuzzyMatchMaxSearchLines / fuzzyMatchMaxSearchStringLen bound the cost of
+// FuzzyMatchMaxSearchLines / FuzzyMatchMaxSearchStringLen bound the cost of
 // fuzzy search: it's O(totalLines * len(searchString)^2) in the worst case
 // (a Levenshtein DP table per candidate window), which is fine for a normal
 // edit_file call on a normal file but not something to run unbounded on a
 // huge file or a huge old_string.
 const (
-	fuzzyMatchMaxSearchLines     = 20000
-	fuzzyMatchMaxSearchStringLen = 4000
+	FuzzyMatchMaxSearchLines     = 20000
+	FuzzyMatchMaxSearchStringLen = 4000
 )
 
-// fuzzyMatch is the best candidate found for a failed exact/quote-normalized
+// FuzzyMatch is the best candidate found for a failed exact/quote-normalized
 // match, with the info needed to build an actionable error message.
-type fuzzyMatch struct {
+type FuzzyMatch struct {
 	Text       string
 	Similarity float64
 }
 
-// findFuzzyMatch searches fileContent for the substring most similar to
+// FindFuzzyMatch searches fileContent for the substring most similar to
 // searchString, using a sliding window sized to searchString's line count
 // (edit blocks are almost always a handful of contiguous lines, so this is
 // both cheap and matches how the tool is actually used - unlike a full
 // rune-by-rune slide, which would be far more expensive for no benefit here).
-// Returns ok=false when no candidate clears fuzzyMatchMinSimilarity, or when
+// Returns ok=false when no candidate clears FuzzyMatchMinSimilarity, or when
 // the search space exceeds the bounds above (silently skipped, not an error -
 // the caller just won't get a suggestion).
-func findFuzzyMatch(fileContent, searchString string) (fuzzyMatch, bool) {
+func FindFuzzyMatch(fileContent, searchString string) (FuzzyMatch, bool) {
 	searchString = strings.TrimRight(searchString, "\n")
-	if searchString == "" || len(searchString) > fuzzyMatchMaxSearchStringLen {
-		return fuzzyMatch{}, false
+	if searchString == "" || len(searchString) > FuzzyMatchMaxSearchStringLen {
+		return FuzzyMatch{}, false
 	}
 
 	fileLines := strings.Split(fileContent, "\n")
-	if len(fileLines) > fuzzyMatchMaxSearchLines {
-		return fuzzyMatch{}, false
+	if len(fileLines) > FuzzyMatchMaxSearchLines {
+		return FuzzyMatch{}, false
 	}
 
 	searchLines := strings.Split(searchString, "\n")
@@ -49,28 +49,28 @@ func findFuzzyMatch(fileContent, searchString string) (fuzzyMatch, bool) {
 		windowSize = len(fileLines)
 	}
 	if windowSize == 0 {
-		return fuzzyMatch{}, false
+		return FuzzyMatch{}, false
 	}
 
-	best := fuzzyMatch{}
+	best := FuzzyMatch{}
 	for start := 0; start+windowSize <= len(fileLines); start++ {
 		candidate := strings.Join(fileLines[start:start+windowSize], "\n")
-		sim := levenshteinSimilarity(searchString, candidate)
+		sim := LevenshteinSimilarity(searchString, candidate)
 		if sim > best.Similarity {
-			best = fuzzyMatch{Text: candidate, Similarity: sim}
+			best = FuzzyMatch{Text: candidate, Similarity: sim}
 		}
 	}
 
-	if best.Similarity < fuzzyMatchMinSimilarity {
-		return fuzzyMatch{}, false
+	if best.Similarity < FuzzyMatchMinSimilarity {
+		return FuzzyMatch{}, false
 	}
 	return best, true
 }
 
-// levenshteinSimilarity returns a 0..1 similarity score (1 = identical)
+// LevenshteinSimilarity returns a 0..1 similarity score (1 = identical)
 // derived from Levenshtein edit distance, normalized by the longer string's
 // length so unequal-length comparisons stay meaningful.
-func levenshteinSimilarity(a, b string) float64 {
+func LevenshteinSimilarity(a, b string) float64 {
 	ar, br := []rune(a), []rune(b)
 	maxLen := len(ar)
 	if len(br) > maxLen {
@@ -118,12 +118,12 @@ func levenshteinDistance(a, b []rune) int {
 	return prev[len(b)]
 }
 
-// charDiff renders a's and b's difference as DesktopCommanderMCP-style
+// CharDiff renders a's and b's difference as DesktopCommanderMCP-style
 // inline markup: "common{-removed-}{+added+}common" - built by backtracking
 // through the same Levenshtein DP table used for the similarity score, so
 // the diff shown is guaranteed to be a minimal edit sequence, not a
 // heuristic approximation.
-func charDiff(a, b string) string {
+func CharDiff(a, b string) string {
 	ar, br := []rune(a), []rune(b)
 	n, m := len(ar), len(br)
 

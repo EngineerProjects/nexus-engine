@@ -282,12 +282,12 @@ func (e *Tool) Call(
 		updatedNormalizedContent = actualNewString
 		replacementsMade = 1
 	} else {
-		actualOldString = findActualString(normalizedOriginalContent, normalizedOldString)
+		actualOldString = FindActualString(normalizedOriginalContent, normalizedOldString)
 		if actualOldString == "" {
-			if match, ok := findFuzzyMatch(normalizedOriginalContent, normalizedOldString); ok {
+			if match, ok := FindFuzzyMatch(normalizedOriginalContent, normalizedOldString); ok {
 				return tool.NewErrorResult(fmt.Errorf(
 					"old_string not found in file: %s\n\nClosest match in the file (%.0f%% similar):\n%s\n\nDiff vs your old_string ({-in your old_string, not in the file-} / {+in the file, not in your old_string+}):\n%s",
-					filePath, match.Similarity*100, match.Text, charDiff(normalizedOldString, match.Text),
+					filePath, match.Similarity*100, match.Text, CharDiff(normalizedOldString, match.Text),
 				)), nil
 			}
 			return tool.NewErrorResult(fmt.Errorf("old_string not found in file: %s", filePath)), nil
@@ -545,7 +545,12 @@ func normalizeQuoteRune(r rune) rune {
 	}
 }
 
-func findActualString(fileContent string, searchString string) string {
+// FindActualString finds searchString in fileContent, tolerating curly vs.
+// straight quote differences (a model very commonly "corrects" one style to
+// the other when recalling text). Returns the exact substring as it appears
+// in fileContent (which may differ from searchString only in quote style),
+// or "" if no match - including a quote-normalized one - exists.
+func FindActualString(fileContent string, searchString string) string {
 	if strings.Contains(fileContent, searchString) {
 		return searchString
 	}

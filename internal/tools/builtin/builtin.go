@@ -7,6 +7,7 @@ import (
 	agentsTool "github.com/KPO-Tech/seshat/internal/tools/agents"
 	automationTool "github.com/KPO-Tech/seshat/internal/tools/automation"
 	bashTool "github.com/KPO-Tech/seshat/internal/tools/bash"
+	docxTool "github.com/KPO-Tech/seshat/internal/tools/files/docx"
 	editTool "github.com/KPO-Tech/seshat/internal/tools/files/edit"
 	excelTool "github.com/KPO-Tech/seshat/internal/tools/files/excel"
 	fsTool "github.com/KPO-Tech/seshat/internal/tools/files/fs"
@@ -106,6 +107,7 @@ func RegisterBuiltinToolsWithConfig(reg *tool.Registry, config *Config) error {
 		writeTool.NewWriteTool(config.WorkingDir),
 		editTool.NewEditTool(config.WorkingDir),
 		excelTool.NewTool(config.WorkingDir),
+		docxTool.NewTool(config.WorkingDir),
 		patchTool.NewApplyPatchTool(config.WorkingDir),
 		fsTool.NewCreateDirectoryTool(config.WorkingDir),
 		fsTool.NewGetMetadataTool(config.WorkingDir),
