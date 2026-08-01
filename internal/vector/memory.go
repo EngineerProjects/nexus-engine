@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"sort"
+	"strings"
 	"sync"
 )
 
@@ -29,9 +30,8 @@ func (s *MemoryStore) Upsert(_ context.Context, records []Record) error {
 		if record.Key == "" {
 			return fmt.Errorf("vector key is required")
 		}
-		if len(record.Vector) == 0 {
-			return fmt.Errorf("vector values are required")
-		}
+		// Vector may be empty: a vectorless (no-embedder) record is still
+		// stored so keyword-only search can find it later.
 		if _, ok := s.records[record.Namespace]; !ok {
 			s.records[record.Namespace] = make(map[string]Record)
 		}
@@ -46,12 +46,13 @@ func (s *MemoryStore) Search(_ context.Context, query Query) ([]SearchResult, er
 	if query.Namespace == "" {
 		return nil, fmt.Errorf("vector query namespace is required")
 	}
-	if len(query.Vector) == 0 {
-		return nil, fmt.Errorf("vector query values are required")
-	}
 	topK := query.TopK
 	if topK <= 0 {
 		topK = 5
+	}
+	vectorless := len(query.Vector) == 0
+	if vectorless && strings.TrimSpace(query.QueryText) == "" {
+		return nil, fmt.Errorf("vector query values or query text are required")
 	}
 	namespaceRecords := s.records[query.Namespace]
 	results := make([]SearchResult, 0, len(namespaceRecords))
@@ -59,7 +60,18 @@ func (s *MemoryStore) Search(_ context.Context, query Query) ([]SearchResult, er
 		if len(query.Filter) > 0 && !matchesFilter(record, query.Filter) {
 			continue
 		}
-		score := cosineSimilarity(query.Vector, record.Vector)
+		var score float32
+		if vectorless {
+			score = keywordScore(record.Text, query.QueryText)
+			if score <= 0 {
+				// A real FTS/BM25 index only returns rows that matched at
+				// least one term - mirror that instead of returning every
+				// record in the namespace with a meaningless 0 score.
+				continue
+			}
+		} else {
+			score = cosineSimilarity(query.Vector, record.Vector)
+		}
 		results = append(results, SearchResult{
 			Record: cloneRecord(record),
 			Score:  score,

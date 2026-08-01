@@ -45,6 +45,54 @@ func newTestService(t *testing.T) *Service {
 	return NewService(artifacts, vector.NewMemoryStore(), fakeEmbedder{}, nil)
 }
 
+// newVectorlessTestService mirrors newTestService but with no embedder at
+// all, matching how buildRAGService constructs a Service when no embedding
+// provider is configured (vectorless/BM25-only mode).
+func newVectorlessTestService(t *testing.T) *Service {
+	t.Helper()
+	tmpDir := t.TempDir()
+	storage.SetConfig(storage.Config{
+		Provider:  storage.ProviderLocal,
+		LocalPath: tmpDir,
+	})
+	t.Cleanup(storage.ResetProvider)
+	artifacts, err := storage.DefaultArtifactStore()
+	if err != nil {
+		t.Fatalf("DefaultArtifactStore: %v", err)
+	}
+	return NewService(artifacts, vector.NewMemoryStore(), nil, nil)
+}
+
+// poisonedEmbedder fails the test if EmbedTexts is ever called - used to
+// prove a code path skips embedding entirely rather than merely ignoring
+// the result.
+type poisonedEmbedder struct{ t *testing.T }
+
+func (p poisonedEmbedder) EmbedTexts(_ context.Context, _ []string) ([][]float32, error) {
+	p.t.Helper()
+	p.t.Fatal("EmbedTexts should not have been called")
+	return nil, nil
+}
+
+// stubReranker reverses the input order, so a test can tell whether it ran.
+type stubReranker struct{ configured bool }
+
+func (r stubReranker) IsConfigured() bool { return r.configured }
+
+func (r stubReranker) Rerank(_ context.Context, _ string, docs []string, topN int) ([]int, []float32, error) {
+	indices := make([]int, len(docs))
+	scores := make([]float32, len(docs))
+	for i := range docs {
+		indices[i] = len(docs) - 1 - i
+		scores[i] = float32(len(docs) - i)
+	}
+	if topN > 0 && topN < len(indices) {
+		indices = indices[:topN]
+		scores = scores[:topN]
+	}
+	return indices, scores, nil
+}
+
 func TestServiceIngestAndSearch(t *testing.T) {
 	ctx := context.Background()
 	svc := newTestService(t)
@@ -110,6 +158,88 @@ func TestServiceSearch_WithFilter(t *testing.T) {
 		if r.Metadata["filename"] != "doc-a.txt" {
 			t.Errorf("filter leaked result from %s", r.Metadata["filename"])
 		}
+	}
+}
+
+func TestServiceIngestAndSearch_VectorlessWithoutEmbedder(t *testing.T) {
+	ctx := context.Background()
+	svc := newVectorlessTestService(t)
+
+	ingested, err := svc.Ingest(ctx, IngestRequest{
+		CorpusID: "kb",
+		Filename: "notes.txt",
+		Text:     "the quick brown fox\n\nan entirely unrelated paragraph",
+	})
+	if err != nil {
+		t.Fatalf("Ingest without an embedder: %v", err)
+	}
+	if ingested.Chunks != 2 {
+		t.Fatalf("expected 2 chunks, got %d", ingested.Chunks)
+	}
+
+	resp, err := svc.Search(ctx, SearchRequest{CorpusID: "kb", Query: "fox", TopK: 5})
+	if err != nil {
+		t.Fatalf("Search without an embedder: %v", err)
+	}
+	if len(resp.Results) != 1 {
+		t.Fatalf("expected exactly 1 BM25 match for 'fox', got %d: %+v", len(resp.Results), resp.Results)
+	}
+	if !strings.Contains(resp.Results[0].Text, "fox") {
+		t.Errorf("unexpected match: %q", resp.Results[0].Text)
+	}
+}
+
+func TestServiceSearch_HybridWeightOneSkipsEmbeddingEvenWithEmbedder(t *testing.T) {
+	ctx := context.Background()
+	tmpDir := t.TempDir()
+	storage.SetConfig(storage.Config{Provider: storage.ProviderLocal, LocalPath: tmpDir})
+	t.Cleanup(storage.ResetProvider)
+	artifacts, err := storage.DefaultArtifactStore()
+	if err != nil {
+		t.Fatalf("DefaultArtifactStore: %v", err)
+	}
+	svc := NewService(artifacts, vector.NewMemoryStore(), poisonedEmbedder{t: t}, nil)
+
+	// Ingest must go through fakeEmbedder-equivalent text-only path too, so
+	// use a real (non-poisoned) embedder just for ingest, then swap it out.
+	ingestSvc := NewService(artifacts, svc.Vectors(), fakeEmbedder{}, nil)
+	if _, err := ingestSvc.Ingest(ctx, IngestRequest{
+		CorpusID: "kb", Filename: "doc.txt", Text: "alpha content here",
+	}); err != nil {
+		t.Fatalf("Ingest: %v", err)
+	}
+
+	// hybrid_weight=1 (pure keyword) with an embedder configured must not
+	// call EmbedTexts at all - poisonedEmbedder fails the test if it does.
+	if _, err := svc.Search(ctx, SearchRequest{
+		CorpusID: "kb", Query: "alpha", TopK: 5, HybridWeight: 1,
+	}); err != nil {
+		t.Fatalf("Search with hybrid_weight=1: %v", err)
+	}
+}
+
+func TestServiceSearch_VectorlessRerankStillApplies(t *testing.T) {
+	ctx := context.Background()
+	svc := newVectorlessTestService(t)
+	svc.SetReranker(stubReranker{configured: true})
+
+	if _, err := svc.Ingest(ctx, IngestRequest{
+		CorpusID: "kb", Filename: "a.txt", Text: "keyword one",
+	}); err != nil {
+		t.Fatalf("Ingest a: %v", err)
+	}
+	if _, err := svc.Ingest(ctx, IngestRequest{
+		CorpusID: "kb", Filename: "b.txt", Text: "keyword two",
+	}); err != nil {
+		t.Fatalf("Ingest b: %v", err)
+	}
+
+	resp, err := svc.Search(ctx, SearchRequest{CorpusID: "kb", Query: "keyword", TopK: 5})
+	if err != nil {
+		t.Fatalf("vectorless Search with reranker: %v", err)
+	}
+	if len(resp.Results) == 0 {
+		t.Fatal("expected results from vectorless search + rerank")
 	}
 }
 

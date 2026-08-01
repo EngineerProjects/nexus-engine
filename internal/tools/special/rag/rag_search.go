@@ -27,7 +27,7 @@ func (t *SearchTool) Definition() tool.Definition {
 		Name:        ToolSearchName,
 		DisplayName: "RAG Search",
 		SearchHint:  SearchHint,
-		Description: "Search a document corpus using semantic similarity. Provide a corpus_id (namespace) and a natural-language query. Returns the top matching text chunks ranked by relevance score.",
+		Description: "Search a document corpus using semantic similarity (or keyword/BM25 ranking when no embedding provider is configured - same tool either way). Provide a corpus_id (namespace) and a natural-language query. Returns the top matching text chunks ranked by relevance score.",
 		Category:    "rag",
 		InputSchema: schema.FromMap(map[string]any{
 			"type": "object",

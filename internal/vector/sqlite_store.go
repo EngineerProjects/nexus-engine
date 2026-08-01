@@ -84,9 +84,13 @@ func (s *SQLiteStore) Upsert(ctx context.Context, records []Record) error {
 		if r.Key == "" {
 			return fmt.Errorf("vector key is required")
 		}
-		if len(r.Vector) == 0 {
-			return fmt.Errorf("vector values are required")
-		}
+		// Vector may be empty: a vectorless (BM25-only) record still needs
+		// a row so the FTS5 index below can find it. encodeVector(nil)
+		// produces a zero-length (not NULL) BLOB, satisfying the NOT NULL
+		// column - decodeVector treats it as an empty vector, and
+		// cosineSimilarity already returns 0 for empty operands, so a mixed
+		// corpus (some records with vectors, some without) degrades safely
+		// rather than erroring.
 		blob, err := encodeVector(r.Vector)
 		if err != nil {
 			return fmt.Errorf("encode vector for key %q: %w", r.Key, err)
@@ -119,16 +123,23 @@ func (s *SQLiteStore) Upsert(ctx context.Context, records []Record) error {
 // Search performs cosine similarity search over the given namespace.
 // When query.HybridWeight > 0 and query.QueryText is set, BM25 scores from the
 // FTS5 index are blended with vector scores using linear interpolation.
+// When query.Vector is empty, this is a vectorless query: it skips the
+// vector scan entirely and ranks purely by FTS5 BM25 (see searchTextOnly) -
+// cheaper than the vector path too, since it lets the FTS5 index do the
+// work instead of loading and scoring every record in Go.
 func (s *SQLiteStore) Search(ctx context.Context, query Query) ([]SearchResult, error) {
 	if query.Namespace == "" {
 		return nil, fmt.Errorf("vector query namespace is required")
 	}
-	if len(query.Vector) == 0 {
-		return nil, fmt.Errorf("vector query values are required")
-	}
 	topK := query.TopK
 	if topK <= 0 {
 		topK = 5
+	}
+	if len(query.Vector) == 0 {
+		if strings.TrimSpace(query.QueryText) == "" {
+			return nil, fmt.Errorf("vector query values or query text are required")
+		}
+		return s.searchTextOnly(ctx, query, topK)
 	}
 
 	// Load all vector records for the namespace.
@@ -239,6 +250,64 @@ func (s *SQLiteStore) blendBM25(ctx context.Context, namespace, queryText string
 		results[i].Score = (1-hw)*results[i].Score + hw*bm25Norm
 	}
 	return results
+}
+
+// searchTextOnly ranks purely by FTS5 BM25, with no vector involved at all -
+// used for vectorless corpora (no embedder configured) and for explicit
+// pure-keyword queries. bm25() scores are negative (more negative = better
+// match); negated here so the returned Score follows this package's
+// "higher is better" convention like every other backend's Score.
+func (s *SQLiteStore) searchTextOnly(ctx context.Context, query Query, topK int) ([]SearchResult, error) {
+	ftsQuery := sanitizeFTSQuery(query.QueryText)
+	if ftsQuery == "" {
+		return nil, nil
+	}
+
+	// Filtering happens client-side after fetch (matchesFilter, same as the
+	// vector path), so over-fetch when a filter is present to leave enough
+	// candidates after rows get dropped.
+	fetchLimit := topK
+	if len(query.Filter) > 0 && fetchLimit < 200 {
+		fetchLimit = 200
+	}
+
+	rows, err := s.db.SQL().QueryContext(ctx,
+		`SELECT v.key, v.text, v.metadata, bm25(vector_records_fts) AS score
+		 FROM vector_records_fts f
+		 JOIN vector_records v ON v.namespace = f.namespace AND v.key = f.key
+		 WHERE f.namespace = ? AND vector_records_fts MATCH ?
+		 ORDER BY score
+		 LIMIT ?`,
+		query.Namespace, ftsQuery, fetchLimit)
+	if err != nil {
+		return nil, fmt.Errorf("fts5 text search: %w", err)
+	}
+	defer rows.Close()
+
+	var results []SearchResult
+	for rows.Next() {
+		var key, text, metaJSON string
+		var raw float64
+		if err := rows.Scan(&key, &text, &metaJSON, &raw); err != nil {
+			return nil, fmt.Errorf("scan fts5 result: %w", err)
+		}
+		var meta map[string]string
+		if err := json.Unmarshal([]byte(metaJSON), &meta); err != nil {
+			meta = nil
+		}
+		r := Record{Namespace: query.Namespace, Key: key, Text: text, Metadata: meta}
+		if len(query.Filter) > 0 && !matchesFilter(r, query.Filter) {
+			continue
+		}
+		results = append(results, SearchResult{Record: r, Score: float32(-raw)})
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate fts5 results: %w", err)
+	}
+	if len(results) > topK {
+		results = results[:topK]
+	}
+	return results, nil
 }
 
 // sanitizeFTSQuery removes FTS5-special characters that could cause parse errors.

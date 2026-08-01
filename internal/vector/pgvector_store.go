@@ -127,7 +127,13 @@ func (s *PgVectorStore) Search(ctx context.Context, query Query) ([]SearchResult
 		return nil, fmt.Errorf("vector query namespace is required")
 	}
 	if len(query.Vector) == 0 {
-		return nil, fmt.Errorf("vector query values are required")
+		// pgvector's embedding column has a fixed dimension (VECTOR(dim)),
+		// so a vectorless record can't be stored the way SQLite/HNSW/Memory
+		// store one - unlike Search's ts_rank-based hybrid path (which
+		// already works for a vector.Query with Vector set), a real
+		// zero-vector-required vectorless mode would need schema work this
+		// backend hasn't had yet. Not wired into the CLI today either.
+		return nil, fmt.Errorf("pgvector search: vectorless (BM25-only) search is not supported by this backend yet - use the sqlite, memory, or hnsw backend, or provide a query vector")
 	}
 	topK := query.TopK
 	if topK <= 0 {
