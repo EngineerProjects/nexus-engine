@@ -6,19 +6,33 @@ import (
 	"strings"
 	"time"
 
+	"charm.land/lipgloss/v2"
 	"github.com/KPO-Tech/seshat/internal/seshattui/message"
 	"github.com/KPO-Tech/seshat/internal/seshattui/session"
+	"github.com/KPO-Tech/seshat/internal/seshattui/ui/list"
 	"github.com/KPO-Tech/seshat/internal/seshattui/ui/styles"
 	taskTool "github.com/KPO-Tech/seshat/internal/tools/task"
+	"github.com/charmbracelet/x/ansi"
 )
 
 type TaskListToolMessageItem struct{ *baseToolMessageItem }
 type TaskGetToolMessageItem struct{ *baseToolMessageItem }
 type TaskStopToolMessageItem struct{ *baseToolMessageItem }
+type PlanTaskListMessageItem struct {
+	*list.Versioned
+	*highlightableMessageItem
+	*cachedMessageItem
+	*focusableMessageItem
+
+	id    string
+	sty   *styles.Styles
+	tasks []planTaskItem
+}
 
 var _ ToolMessageItem = (*TaskListToolMessageItem)(nil)
 var _ ToolMessageItem = (*TaskGetToolMessageItem)(nil)
 var _ ToolMessageItem = (*TaskStopToolMessageItem)(nil)
+var _ MessageItem = (*PlanTaskListMessageItem)(nil)
 
 func NewTaskListToolMessageItem(sty *styles.Styles, toolCall message.ToolCall, result *message.ToolResult, canceled bool) ToolMessageItem {
 	return &TaskListToolMessageItem{newBaseToolMessageItem(sty, toolCall, result, &TaskListToolRenderContext{}, canceled)}
@@ -35,6 +49,127 @@ func NewTaskStopToolMessageItem(sty *styles.Styles, toolCall message.ToolCall, r
 type TaskListToolRenderContext struct{}
 type TaskGetToolRenderContext struct{}
 type TaskStopToolRenderContext struct{}
+
+type planTaskItem struct {
+	ID         string
+	Subject    string
+	Status     string
+	ActiveForm string
+}
+
+type taskCreateParams struct {
+	Subject    string `json:"subject"`
+	ActiveForm string `json:"activeForm"`
+}
+
+type taskCreateResult struct {
+	Task struct {
+		ID      string `json:"id"`
+		Subject string `json:"subject"`
+	} `json:"task"`
+}
+
+type taskUpdateParams struct {
+	TaskID     string `json:"taskId"`
+	Subject    string `json:"subject"`
+	Status     string `json:"status"`
+	ActiveForm string `json:"activeForm"`
+}
+
+func NewPlanTaskListMessageItem(sty *styles.Styles, messageID string, tasks []planTaskItem) *PlanTaskListMessageItem {
+	v := list.NewVersioned()
+	return &PlanTaskListMessageItem{
+		Versioned:                v,
+		highlightableMessageItem: defaultHighlighter(sty, v),
+		cachedMessageItem:        &cachedMessageItem{},
+		focusableMessageItem:     newFocusableMessageItem(v),
+		id:                       messageID + ":plan-tasks",
+		sty:                      sty,
+		tasks:                    tasks,
+	}
+}
+
+func BuildPlanTaskListItem(sty *styles.Styles, msg *message.Message, toolResults map[string]message.ToolResult) *PlanTaskListMessageItem {
+	tasks := collectPlanTaskItems(msg, toolResults)
+	if len(tasks) == 0 {
+		return nil
+	}
+	return NewPlanTaskListMessageItem(sty, msg.ID, tasks)
+}
+
+func collectPlanTaskItems(msg *message.Message, toolResults map[string]message.ToolResult) []planTaskItem {
+	if msg == nil {
+		return nil
+	}
+	byID := make(map[string]int)
+	var tasks []planTaskItem
+	anon := 0
+	for _, part := range msg.Parts {
+		tc, ok := part.(message.ToolCall)
+		if !ok {
+			continue
+		}
+		switch tc.Name {
+		case taskTool.ToolNameTaskCreate:
+			var params taskCreateParams
+			_ = json.Unmarshal([]byte(tc.Input), &params)
+			item := planTaskItem{
+				Subject:    params.Subject,
+				Status:     taskTool.TaskStatusPending,
+				ActiveForm: params.ActiveForm,
+			}
+			if result, ok := toolResults[tc.ID]; ok {
+				var out taskCreateResult
+				_ = json.Unmarshal([]byte(firstNonEmpty(result.Data, result.Content)), &out)
+				item.ID = out.Task.ID
+				if item.Subject == "" {
+					item.Subject = out.Task.Subject
+				}
+			}
+			if item.ID == "" {
+				anon++
+				item.ID = fmt.Sprintf("new-%d", anon)
+			}
+			if item.Subject == "" {
+				item.Subject = "Untitled task"
+			}
+			byID[item.ID] = len(tasks)
+			tasks = append(tasks, item)
+		case taskTool.ToolNameTaskUpdate:
+			var params taskUpdateParams
+			_ = json.Unmarshal([]byte(tc.Input), &params)
+			if params.TaskID == "" {
+				continue
+			}
+			idx, ok := byID[params.TaskID]
+			if !ok {
+				item := planTaskItem{ID: params.TaskID, Subject: params.TaskID, Status: taskTool.TaskStatusPending}
+				byID[item.ID] = len(tasks)
+				tasks = append(tasks, item)
+				idx = len(tasks) - 1
+			}
+			if params.Subject != "" {
+				tasks[idx].Subject = params.Subject
+			}
+			if params.Status != "" {
+				tasks[idx].Status = params.Status
+			}
+			if params.ActiveForm != "" {
+				tasks[idx].ActiveForm = params.ActiveForm
+			}
+		}
+	}
+	return tasks
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
+}
 
 type taskListToolParams struct {
 	Status   string `json:"status"`
@@ -243,6 +378,65 @@ func (t *TaskStopToolRenderContext) RenderTool(sty *styles.Styles, width int, op
 	}
 	body := sty.Tool.Body.Render(toolOutputPlainContent(sty, strings.Join(lines, "\n"), bodyWidth(cappedWidth), opts.ExpandedContent))
 	return joinToolParts(header, body)
+}
+
+func (p *PlanTaskListMessageItem) ID() string { return p.id }
+
+func (p *PlanTaskListMessageItem) Finished() bool { return true }
+
+func (p *PlanTaskListMessageItem) RawRender(width int) string {
+	cappedWidth := cappedMessageWidth(width)
+	if cached, height, ok := p.getCachedRender(cappedWidth); ok {
+		return p.renderHighlighted(cached, cappedWidth, height)
+	}
+	bodyWidth := max(20, cappedWidth-4)
+	title := p.sty.Tool.ResultItemName.Render("Plan")
+	count := p.sty.Tool.ResultItemDesc.Render(fmt.Sprintf("%d tasks", len(p.tasks)))
+	lines := []string{title + " " + count}
+	for _, task := range p.tasks {
+		icon := planTaskStatusIcon(p.sty, task.Status)
+		subject := task.Subject
+		if task.Status == taskTool.TaskStatusInProgress && task.ActiveForm != "" {
+			subject = task.ActiveForm
+		}
+		subject = ansi.Truncate(subject, bodyWidth-4, "...")
+		lines = append(lines, fmt.Sprintf("%s %s", icon, p.sty.Tool.ContentText.Render(subject)))
+	}
+	rendered := lipgloss.NewStyle().
+		Border(lipgloss.NormalBorder(), false, false, false, true).
+		PaddingLeft(1).
+		Width(cappedWidth).
+		Render(strings.Join(lines, "\n"))
+	p.setCachedRender(rendered, cappedWidth, lipgloss.Height(rendered))
+	return p.renderHighlighted(rendered, cappedWidth, lipgloss.Height(rendered))
+}
+
+func (p *PlanTaskListMessageItem) Render(width int) string {
+	focused := p.sty.Messages.AssistantFocused.Render()
+	blurred := p.sty.Messages.AssistantBlurred.Render()
+	rendered := p.RawRender(width)
+	lines := strings.Split(rendered, "\n")
+	prefix := blurred
+	if p.focused {
+		prefix = focused
+	}
+	for i, line := range lines {
+		lines[i] = prefix + line
+	}
+	return strings.Join(lines, "\n")
+}
+
+func planTaskStatusIcon(sty *styles.Styles, status string) string {
+	switch status {
+	case taskTool.TaskStatusCompleted:
+		return sty.Tool.TodoCompletedIcon.Render("✓")
+	case taskTool.TaskStatusInProgress:
+		return sty.Tool.TodoInProgressIcon.Render("●")
+	case taskTool.TaskStatusDeleted:
+		return sty.Tool.StateCancelled.Render("×")
+	default:
+		return sty.Tool.TodoPendingIcon.Render("○")
+	}
 }
 
 func metadataOrEmpty(result *message.ToolResult) string {

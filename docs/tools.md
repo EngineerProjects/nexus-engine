@@ -114,6 +114,15 @@ Interact with Jupyter notebooks and live kernels. The kernel sub-tools require a
 
 ---
 
+### Context tools
+
+| Tool | Description |
+|---|---|
+| `repo_map` | Build a compact structural map of the current repository. V1 is Go-first: it enumerates tracked/unignored files, parses Go packages and signatures, ranks important files, and renders within a token budget. |
+| `workflow_draft` | Validate and render a static workflow DAG draft as YAML or JSON. Supports `agent`, `verifier`, `critic`, and `router` node roles for reusable parallel-agent workflow structure. |
+
+---
+
 ### Browser tools (`internal/tools/web/browser/`)
 
 Browser automation via Playwright (go-rod). Available when a browser instance is configured.
@@ -230,9 +239,9 @@ Provider implemented: **OpenAI** (DALL-E 3 for images, TTS-1/TTS-1-HD for synthe
 
 | Tool | Description |
 |---|---|
-| `goal_create` | Create a tracked goal with title, description, and optional sub-goals. |
-| `goal_get` | Retrieve the current state of a goal and its sub-goals. |
-| `goal_update` | Update goal status (in_progress, completed, abandoned) or details. |
+| `create_goal` | Create or replace the active session goal with an objective and optional token budget. When SQLite session storage is enabled, the goal is persisted with the session and successful turns record token usage against it. |
+| `get_goal` | Retrieve the active session goal, status, token usage, elapsed time, and remaining budget. |
+| `update_goal` | Update the active goal's status (`active`, `paused`, `blocked`, `complete`) or objective. |
 
 ---
 
@@ -337,6 +346,73 @@ tools := []tool.Tool{
 ```
 
 See [`CONTRIBUTING.md`](../CONTRIBUTING.md) for the full tool-addition checklist.
+
+---
+
+## Static Workflow DAGs
+
+`pkg/workflow` runs a minimal static DAG that can be loaded from YAML or JSON.
+Each node has an `id`, a `prompt`, optional `needs` dependencies, and an
+optional `kind`: `agent`, `verifier`, `critic`, or `router`. Nodes whose
+dependencies are complete run in parallel up to `--max-parallel`; each
+downstream prompt receives the text outputs from its dependencies.
+
+`verifier`, `critic`, and `router` nodes add role-specific prompt guidance.
+Router nodes also declare allowed `routes`, which are rendered into the prompt;
+V1 records the routing decision as model output while execution remains a static
+DAG.
+
+Headless hosts should prefer the SDK entry point, `Client.RunWorkflow`. The CLI
+command is a thin wrapper around that SDK method.
+Agents can use `workflow_draft` to produce a validated YAML/JSON workflow
+definition before asking to save it or running it later.
+
+```yaml
+name: investigation
+nodes:
+  - id: collect
+    prompt: Find the relevant facts.
+  - id: verify
+    kind: verifier
+    prompt: Check the facts for contradictions.
+    needs: [collect]
+  - id: critique
+    kind: critic
+    prompt: Identify gaps, risks, and missing evidence.
+    needs: [collect]
+  - id: route
+    kind: router
+    prompt: Decide whether the final answer is ready or more research is needed.
+    needs: [verify, critique]
+    routes: [final]
+  - id: final
+    prompt: Write the final answer.
+    needs: [route]
+```
+
+Run it with:
+
+```sh
+seshat workflow run workflow.yaml --max-parallel 4
+```
+
+---
+
+## Companion Profile
+
+`pkg/companion` stores a lightweight collaboration profile. Headless hosts can
+set `ClientConfig.Companion`; the SDK appends the generated `<companion>` block
+after the normal system prompt so it guides tone and presence without replacing
+Seshat's core instructions.
+
+Local CLI users can manage the same profile with:
+
+```sh
+seshat companion init --name Nora --style "calm, precise" --traits "warm,proactive"
+seshat companion show
+seshat companion enable
+seshat companion disable
+```
 
 ---
 

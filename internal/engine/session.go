@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	coregoal "github.com/KPO-Tech/seshat/internal/agent/goal"
 	"github.com/KPO-Tech/seshat/internal/execution"
 	"github.com/KPO-Tech/seshat/internal/prompt"
 	tool "github.com/KPO-Tech/seshat/internal/tools/registry"
@@ -262,6 +263,7 @@ func (s *Session) submitWithMessage(ctx context.Context, userMsg types.Message, 
 	}
 
 	s.state.AdvanceTurn(loopResult.Usage, loopResult.Messages)
+	recordGoalTokenUsage(s.state.SessionID, loopResult.Usage)
 	if err := s.persistSessionState(persistedMessages); err != nil {
 		return nil, fmt.Errorf("failed to persist session state after turn: %w", err)
 	}
@@ -298,6 +300,17 @@ func (s *Session) submitWithMessage(ctx context.Context, userMsg types.Message, 
 	})
 
 	return response, nil
+}
+
+func recordGoalTokenUsage(sessionID types.SessionID, usage *types.TokenUsage) {
+	if usage == nil {
+		return
+	}
+	tokens := int64(usage.InputTokens + usage.OutputTokens)
+	if tokens <= 0 {
+		return
+	}
+	coregoal.GetDefaultStore().RecordTokenUsage(sessionID.String(), tokens)
 }
 
 // Interrupt cancels the current turn and marks the session as interrupted.

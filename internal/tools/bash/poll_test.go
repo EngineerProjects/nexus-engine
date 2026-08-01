@@ -1,7 +1,10 @@
 package bash
 
 import (
+	"bufio"
 	"context"
+	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -10,11 +13,9 @@ import (
 	tool "github.com/KPO-Tech/seshat/internal/tools/registry"
 )
 
-// These tests spawn a real `sh -c ...` process per case (sh is available on
-// both the Linux CI runner and this repo's Windows dev environment via Git
-// Bash) instead of mocking BackgroundTaskManager, so they exercise the real
-// stdin-pipe/output-file plumbing pollForOutput actually runs against, not
-// just the polling logic in isolation.
+// These tests spawn a real shell process per case instead of mocking
+// BackgroundTaskManager, so they exercise the stdin-pipe/output-file plumbing
+// pollForOutput actually runs against, not just the polling logic in isolation.
 
 func newTestTaskManager(t *testing.T) *BackgroundTaskManager {
 	t.Helper()
@@ -28,15 +29,60 @@ func newTestTaskManager(t *testing.T) *BackgroundTaskManager {
 	return mgr
 }
 
+func TestBackgroundTaskHelperProcess(t *testing.T) {
+	if os.Getenv("SESHAT_BASH_TEST_HELPER") != "1" {
+		return
+	}
+	reader := bufio.NewScanner(os.Stdin)
+	switch os.Getenv("SESHAT_BASH_TEST_HELPER_MODE") {
+	case "prompt-block":
+		fmt.Print("> ")
+		reader.Scan()
+	case "done":
+		fmt.Println("done")
+	case "interactive":
+		fmt.Print("> ")
+		reader.Scan()
+		fmt.Println("got:" + reader.Text())
+		fmt.Print("> ")
+		reader.Scan()
+		fmt.Println("got:" + reader.Text())
+	case "late":
+		time.Sleep(300 * time.Millisecond)
+		fmt.Println("late-output")
+	case "lines":
+		for i := 1; i <= 20; i++ {
+			fmt.Println("line-" + strconv.Itoa(i))
+		}
+	default:
+		fmt.Println("unknown helper mode")
+		os.Exit(2)
+	}
+	os.Exit(0)
+}
+
+func startTestHelperTask(t *testing.T, mgr *BackgroundTaskManager, mode string) *BackgroundTask {
+	t.Helper()
+	env := append(os.Environ(),
+		"SESHAT_BASH_TEST_HELPER=1",
+		"SESHAT_BASH_TEST_HELPER_MODE="+mode,
+	)
+	task, err := mgr.StartBackgroundTaskArgv(context.Background(), os.Args[0], []string{
+		"-test.run=TestBackgroundTaskHelperProcess",
+		"--",
+	}, "", env)
+	if err != nil {
+		t.Fatalf("StartBackgroundTaskArgv: %v", err)
+	}
+	return task
+}
+
 func TestPollForOutput_EarlyExitsOnPrompt(t *testing.T) {
 	mgr := newTestTaskManager(t)
 	// Prints a prompt then blocks forever on read (no more input given) -
 	// if pollForOutput didn't early-exit on the prompt, this test would have
 	// to wait out the full maxWait every time.
-	task, err := mgr.StartBackgroundTask(context.Background(), `printf '> '; read _unused`, "", nil, "sh")
-	if err != nil {
-		t.Fatalf("StartBackgroundTask: %v", err)
-	}
+	task := startTestHelperTask(t, mgr, "prompt-block")
 	t.Cleanup(func() { _ = mgr.KillTask(task.ID) })
 
 	reader, err := NewTaskOutputReaderFrom(mgr, task.ID)
@@ -63,10 +109,7 @@ func TestPollForOutput_EarlyExitsOnPrompt(t *testing.T) {
 
 func TestPollForOutput_ReturnsOnTaskCompletion(t *testing.T) {
 	mgr := newTestTaskManager(t)
-	task, err := mgr.StartBackgroundTask(context.Background(), `echo done`, "", nil, "sh")
-	if err != nil {
-		t.Fatalf("StartBackgroundTask: %v", err)
-	}
+	task := startTestHelperTask(t, mgr, "done")
 	t.Cleanup(func() { _ = mgr.KillTask(task.ID) })
 
 	reader, err := NewTaskOutputReaderFrom(mgr, task.ID)
@@ -91,12 +134,7 @@ func TestPollForOutput_ReturnsOnTaskCompletion(t *testing.T) {
 
 func TestWriteStdinTool_DrivesInteractiveProcess(t *testing.T) {
 	mgr := newTestTaskManager(t)
-	task, err := mgr.StartBackgroundTask(context.Background(),
-		`printf '> '; read -r line; echo "got:$line"; printf '> '; read -r line2; echo "got:$line2"`,
-		"", nil, "sh")
-	if err != nil {
-		t.Fatalf("StartBackgroundTask: %v", err)
-	}
+	task := startTestHelperTask(t, mgr, "interactive")
 	t.Cleanup(func() { _ = mgr.KillTask(task.ID) })
 
 	// Let the process print its first prompt before we drive it.
@@ -123,10 +161,7 @@ func TestWriteStdinTool_DrivesInteractiveProcess(t *testing.T) {
 
 func TestJobOutputTool_TimeoutWaitsForNewOutput(t *testing.T) {
 	mgr := newTestTaskManager(t)
-	task, err := mgr.StartBackgroundTask(context.Background(), `sleep 0.3; echo late-output`, "", nil, "sh")
-	if err != nil {
-		t.Fatalf("StartBackgroundTask: %v", err)
-	}
+	task := startTestHelperTask(t, mgr, "late")
 	t.Cleanup(func() { _ = mgr.KillTask(task.ID) })
 
 	joTool := NewJobOutputTool()
@@ -159,14 +194,7 @@ func TestJobOutputTool_TimeoutWaitsForNewOutput(t *testing.T) {
 
 func TestJobOutputTool_NegativeOffsetTailsOutput(t *testing.T) {
 	mgr := newTestTaskManager(t)
-	var script strings.Builder
-	for i := 1; i <= 20; i++ {
-		script.WriteString("echo line-" + strconv.Itoa(i) + "; ")
-	}
-	task, err := mgr.StartBackgroundTask(context.Background(), script.String(), "", nil, "sh")
-	if err != nil {
-		t.Fatalf("StartBackgroundTask: %v", err)
-	}
+	task := startTestHelperTask(t, mgr, "lines")
 	t.Cleanup(func() { _ = mgr.KillTask(task.ID) })
 
 	joTool := NewJobOutputTool()

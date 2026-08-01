@@ -1638,6 +1638,9 @@ func (m *UI) handleDialogMsg(msg tea.Msg) tea.Cmd {
 		if cmd := m.openDialog(msg.DialogID); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.ActionOpenDoctor:
+		m.dialog.CloseSettingsFamilyDialogs()
+		m.dialog.OpenDialog(dialog.NewDoctor(m.com, msg.Report))
 
 	// Command dialog messages.
 	case dialog.ActionToggleYoloMode:
@@ -3801,6 +3804,8 @@ func (m *UI) openDialog(id string) tea.Cmd {
 		if cmd := m.openNotificationsDialog(); cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+	case dialog.DoctorID:
+		m.dialog.OpenDialog(dialog.NewDoctor(m.com, m.com.Workspace.DoctorReport(context.Background())))
 	case dialog.FilePickerID:
 		if cmd := m.openFilesDialog(); cmd != nil {
 			cmds = append(cmds, cmd)

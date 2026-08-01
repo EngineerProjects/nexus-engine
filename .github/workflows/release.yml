@@ -14,8 +14,28 @@ permissions:
   contents: write
 
 jobs:
+  validate-release-ref:
+    name: Validate release ref
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Require tag to be on main
+        run: |
+          git fetch origin main --tags
+          TAG_SHA="${{ github.sha }}"
+          if ! git merge-base --is-ancestor "$TAG_SHA" origin/main; then
+            echo "Release tags must point to a commit already reachable from origin/main."
+            echo "Tag commit: $TAG_SHA"
+            echo "origin/main: $(git rev-parse origin/main)"
+            exit 1
+          fi
+
   build:
     name: Build ${{ matrix.suffix }}
+    needs: validate-release-ref
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false

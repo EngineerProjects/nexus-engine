@@ -375,6 +375,8 @@ func ExtractMessageItems(sty *styles.Styles, msg *message.Message, toolResults m
 		canceled := msg.FinishReason() == message.FinishReasonCanceled
 		var items []MessageItem
 		assistantAdded := false
+		taskPanel := BuildPlanTaskListItem(sty, msg, toolResults)
+		taskPanelAdded := false
 
 		// Walk Parts in their natural order so tools that were called before text
 		// (or before thinking) appear above the assistant text block, not after.
@@ -387,6 +389,10 @@ func ExtractMessageItems(sty *styles.Styles, msg *message.Message, toolResults m
 				}
 			case message.ToolCall:
 				if !ShouldRenderToolCall(p) {
+					if taskPanel != nil && !taskPanelAdded && isPlanTaskToolName(p.Name) {
+						items = append(items, taskPanel)
+						taskPanelAdded = true
+					}
 					continue
 				}
 				var result *message.ToolResult

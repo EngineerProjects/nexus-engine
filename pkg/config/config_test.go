@@ -257,6 +257,7 @@ func TestAvailableProvidersIncludesOpenAICompatibleAdditions(t *testing.T) {
 		sdk.APIProviderDeepSeek,
 		sdk.APIProviderOpenCode,
 		sdk.APIProviderMistral,
+		sdk.APIProviderKimi,
 	} {
 		info, ok := GetProviderInfo(provider)
 		if !ok {
@@ -292,6 +293,8 @@ func TestResolveProviderOpenAICompatibleAdditions(t *testing.T) {
 		"opencode-zen": sdk.APIProviderOpenCode,
 		"mistral":      sdk.APIProviderMistral,
 		"mistral-ai":   sdk.APIProviderMistral,
+		"kimi":         sdk.APIProviderKimi,
+		"moonshot":     sdk.APIProviderKimi,
 	}
 	for raw, want := range cases {
 		if got := ResolveProvider(raw); got != want {
@@ -306,6 +309,7 @@ func TestProviderCredentialEnvVarsOpenAICompatibleAdditions(t *testing.T) {
 		sdk.APIProviderDeepSeek: "DEEPSEEK_API_KEY",
 		sdk.APIProviderOpenCode: "OPENCODE_API_KEY",
 		sdk.APIProviderMistral:  "MISTRAL_API_KEY",
+		sdk.APIProviderKimi:     "MOONSHOT_API_KEY",
 	}
 	for provider, want := range cases {
 		vars := ProviderCredentialEnvVars(provider)

@@ -315,7 +315,7 @@ func (c *Config) BuildAuthHeaders() map[string]string {
 		}
 		headers["anthropic-version"] = "2023-06-01"
 
-	case types.APIProviderOpenAI, types.APIProviderGemini, types.APIProviderOpenRouter, types.APIProviderMiniMax, types.APIProviderMistral, types.APIProviderDeepSeek, types.APIProviderOpenCode:
+	case types.APIProviderOpenAI, types.APIProviderGemini, types.APIProviderOpenRouter, types.APIProviderMiniMax, types.APIProviderMistral, types.APIProviderKimi, types.APIProviderDeepSeek, types.APIProviderOpenCode:
 		if c.APIKey != "" {
 			headers["Authorization"] = "Bearer " + c.APIKey
 		}

@@ -28,6 +28,7 @@ import (
 	"github.com/KPO-Tech/seshat/internal/seshattui/permission"
 	"github.com/KPO-Tech/seshat/internal/seshattui/session"
 	"github.com/KPO-Tech/seshat/internal/seshattui/skills"
+	"github.com/KPO-Tech/seshat/pkg/doctor"
 )
 
 // LSPClientInfo holds information about an LSP client's state. This is
@@ -154,6 +155,7 @@ type Workspace interface {
 	Config() *config.Config
 	WorkingDir() string
 	Resolver() config.VariableResolver
+	DoctorReport(ctx context.Context) doctor.Report
 
 	// Config mutations (proxied to server in client mode)
 	UpdatePreferredModel(scope config.Scope, modelType config.SelectedModelType, model config.SelectedModel) error
