@@ -101,20 +101,42 @@ func runBackgroundSession(cfg backgroundRunConfig, stdout io.Writer) error {
 	}
 
 	id := "bg-" + strings.ReplaceAll(uuid.NewString(), "-", "")[:12]
+
+	// The check above only scans already-saved session files, which this
+	// session's own file doesn't become one of until saveBackgroundSession
+	// runs (well after the process is started). Two concurrent launches
+	// with the same --name would both pass that check. claimBackgroundName
+	// closes that window with an atomic O_EXCL file create, so only one
+	// concurrent launch can hold a given name.
+	name := strings.TrimSpace(cfg.Name)
+	if name != "" {
+		if err := claimBackgroundName(name, id); err != nil {
+			return err
+		}
+	}
+	releaseName := func() {
+		if name != "" {
+			_ = os.Remove(backgroundNamePath(name))
+		}
+	}
+
 	stdoutLog, stderrLog := backgroundLogPaths(id)
 	outFile, err := os.OpenFile(stdoutLog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
+		releaseName()
 		return fmt.Errorf("open stdout log: %w", err)
 	}
 	defer outFile.Close()
 	errFile, err := os.OpenFile(stderrLog, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 	if err != nil {
+		releaseName()
 		return fmt.Errorf("open stderr log: %w", err)
 	}
 	defer errFile.Close()
 
 	exe, err := os.Executable()
 	if err != nil {
+		releaseName()
 		return fmt.Errorf("resolve executable: %w", err)
 	}
 
@@ -139,13 +161,14 @@ func runBackgroundSession(cfg backgroundRunConfig, stdout io.Writer) error {
 	cmd.Env = os.Environ()
 	cmd.SysProcAttr = newBackgroundSysProcAttr()
 	if err := cmd.Start(); err != nil {
+		releaseName()
 		return fmt.Errorf("start background session: %w", err)
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
 	session := backgroundSession{
 		ID:        id,
-		Name:      strings.TrimSpace(cfg.Name),
+		Name:      name,
 		PID:       cmd.Process.Pid,
 		Cwd:       cfg.Options.WorkingDir,
 		Status:    backgroundStatusRunning,
@@ -160,14 +183,8 @@ func runBackgroundSession(cfg backgroundRunConfig, stdout io.Writer) error {
 	}
 	if err := saveBackgroundSession(session); err != nil {
 		_ = killProcessTree(cmd.Process.Pid)
+		releaseName()
 		return err
-	}
-	if session.Name != "" {
-		if err := reserveBackgroundName(session.Name, session.ID); err != nil {
-			_ = killProcessTree(cmd.Process.Pid)
-			_, _ = markBackgroundSessionStatus(session.ID, backgroundStatusKilled)
-			return err
-		}
 	}
 	_ = cmd.Process.Release()
 
@@ -414,12 +431,75 @@ func ensureBackgroundNameAvailable(name string) error {
 	return nil
 }
 
-func reserveBackgroundName(name, id string) error {
+// claimBackgroundName atomically reserves name for id, closing the TOCTOU
+// window between ensureBackgroundNameAvailable's scan and the new session's
+// file being saved. If an existing claim belongs to a session that is no
+// longer live, it is treated as stale and replaced; otherwise the claim
+// fails so only one concurrent launch can hold a given name.
+func claimBackgroundName(name, id string) error {
+	if err := ensureBackgroundDirs(); err != nil {
+		return err
+	}
 	data, err := json.MarshalIndent(map[string]string{"name": name, "id": id}, "", "  ")
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(backgroundNamePath(name), data, 0o600)
+	path := backgroundNamePath(name)
+	for attempt := 0; attempt < 2; attempt++ {
+		f, openErr := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if openErr == nil {
+			_, writeErr := f.Write(data)
+			closeErr := f.Close()
+			if writeErr != nil || closeErr != nil {
+				_ = os.Remove(path)
+				if writeErr != nil {
+					return writeErr
+				}
+				return closeErr
+			}
+			return nil
+		}
+		if !os.IsExist(openErr) {
+			return openErr
+		}
+		if attempt == 0 && backgroundNameClaimStale(path) {
+			_ = os.Remove(path)
+			continue
+		}
+		return fmt.Errorf("background session name %q is already in use", name)
+	}
+	return fmt.Errorf("background session name %q is already in use", name)
+}
+
+// backgroundNameClaimStale reports whether the name claim at path belongs to
+// a session that has since become terminal or whose process has died. It
+// only returns true when that can be positively confirmed - an in-flight
+// claim (owning session not yet saved) or an unreadable claim is left alone
+// rather than assumed stale, since stealing it would reopen the same race
+// claimBackgroundName exists to close.
+func backgroundNameClaimStale(path string) bool {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var claim struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(data, &claim); err != nil || claim.ID == "" {
+		return false
+	}
+	session, err := loadBackgroundSession(claim.ID)
+	if err != nil {
+		return false
+	}
+	if isTerminalBackgroundStatus(session.Status) {
+		return true
+	}
+	alive, err := isProcessAlive(session.PID)
+	if err != nil {
+		return false
+	}
+	return !alive
 }
 
 func backgroundMetadataPath(id string) string {
