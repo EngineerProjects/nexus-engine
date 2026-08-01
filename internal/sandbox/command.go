@@ -3,6 +3,7 @@ package sandbox
 import (
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 )
 
@@ -62,6 +63,43 @@ func NewDefaultCommandPolicy() *CommandPolicy {
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────
+
+// DenyFragments returns the substrings that cause a command to be hard-denied
+// regardless of mode, for introspection (e.g. the get_config tool).
+func (p *CommandPolicy) DenyFragments() []string {
+	if p == nil {
+		p = NewDefaultCommandPolicy()
+	}
+	return append([]string(nil), p.denyFragments...)
+}
+
+// DenyPatterns returns the regex source strings that cause a command to be
+// hard-denied regardless of mode, for introspection (e.g. the get_config
+// tool).
+func (p *CommandPolicy) DenyPatterns() []string {
+	if p == nil {
+		p = NewDefaultCommandPolicy()
+	}
+	patterns := make([]string, 0, len(p.denyPatterns))
+	for _, re := range p.denyPatterns {
+		patterns = append(patterns, re.String())
+	}
+	return patterns
+}
+
+// AskCommands returns the bare command names that always require explicit
+// approval, for introspection (e.g. the get_config tool).
+func (p *CommandPolicy) AskCommands() []string {
+	if p == nil {
+		p = NewDefaultCommandPolicy()
+	}
+	cmds := make([]string, 0, len(p.askCommands))
+	for cmd := range p.askCommands {
+		cmds = append(cmds, cmd)
+	}
+	sort.Strings(cmds)
+	return cmds
+}
 
 // IsKnownSafe returns true when every sub-command in the expression is on the
 // explicit safe allowlist, meaning the entire command can be executed without
