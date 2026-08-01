@@ -644,6 +644,7 @@ func (t *Tool) readDoclingFile(
 	format := strings.TrimPrefix(ext, ".")
 
 	if cached := sidecarMarkdown(filePath, fileInfo); cached != "" {
+		RecordExternalRead(filePath, fileInfo.ModTime(), cached, true)
 		result := &FileReadResult{
 			Type: FileTypeDocling,
 			Docling: &DoclingFileResult{
@@ -666,6 +667,7 @@ func (t *Tool) readDoclingFile(
 			return tool.NewErrorResult(fmt.Errorf("failed to read %s: %w", strings.ToUpper(format), readErr)), nil
 		}
 		if markdown, ok, extractErr := officetext.Extract(filePath, data); ok && extractErr == nil {
+			RecordExternalRead(filePath, fileInfo.ModTime(), markdown, true)
 			result := &FileReadResult{
 				Type: FileTypeDocling,
 				Docling: &DoclingFileResult{
@@ -718,6 +720,7 @@ func (t *Tool) readDoclingFile(
 		})
 	}
 
+	RecordExternalRead(filePath, fileInfo.ModTime(), conversion.Markdown, true)
 	result := &FileReadResult{
 		Type: FileTypeDocling,
 		Docling: &DoclingFileResult{
