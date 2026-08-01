@@ -7,6 +7,7 @@ import (
 	agentsTool "github.com/KPO-Tech/seshat/internal/tools/agents"
 	automationTool "github.com/KPO-Tech/seshat/internal/tools/automation"
 	bashTool "github.com/KPO-Tech/seshat/internal/tools/bash"
+	doclingTool "github.com/KPO-Tech/seshat/internal/tools/files/docling"
 	docxTool "github.com/KPO-Tech/seshat/internal/tools/files/docx"
 	editTool "github.com/KPO-Tech/seshat/internal/tools/files/edit"
 	excelTool "github.com/KPO-Tech/seshat/internal/tools/files/excel"
@@ -16,7 +17,6 @@ import (
 	patchTool "github.com/KPO-Tech/seshat/internal/tools/files/patch"
 	pdfwriteTool "github.com/KPO-Tech/seshat/internal/tools/files/pdfwrite"
 	fileReadTool "github.com/KPO-Tech/seshat/internal/tools/files/read"
-	readURLTool "github.com/KPO-Tech/seshat/internal/tools/files/read_url"
 	searchsessionTool "github.com/KPO-Tech/seshat/internal/tools/files/searchsession"
 	writeTool "github.com/KPO-Tech/seshat/internal/tools/files/write"
 	gitTool "github.com/KPO-Tech/seshat/internal/tools/git"
@@ -88,7 +88,7 @@ func RegisterBuiltinToolsWithConfig(reg *tool.Registry, config *Config) error {
 	fileReadConfig := fileReadTool.DefaultToolConfig()
 	fileReadConfig.DoclingURL = config.DoclingURL
 
-	readURLConfig := readURLTool.Config{DoclingURL: config.DoclingURL}
+	doclingConfig := doclingTool.Config{DoclingURL: config.DoclingURL}
 
 	bashConfig := bashTool.DefaultToolConfig()
 	bashConfig.WorkingDirectory = config.WorkingDir
@@ -102,7 +102,8 @@ func RegisterBuiltinToolsWithConfig(reg *tool.Registry, config *Config) error {
 		bashTool.NewJobOutputTool(),
 		bashTool.NewJobKillTool(),
 		fileReadTool.NewTool(fileReadConfig),
-		readURLTool.NewTool(readURLConfig),
+		doclingTool.NewReadURLTool(doclingConfig),
+		doclingTool.NewConvertTool(doclingConfig, config.WorkingDir),
 		globTool.NewGlobTool(config.WorkingDir),
 		grepTool.NewGrepTool(config.WorkingDir),
 		searchsessionTool.NewTool(config.WorkingDir),
