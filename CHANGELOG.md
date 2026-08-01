@@ -9,6 +9,19 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+- Goals created through `create_goal` are now persisted in the SQLite session database when `SessionSQLitePath` is configured, and successful session turns record token usage against the active goal so `get_goal`/`update_goal` can survive client/session restart.
+- TUI chat now replaces hidden `task_create`/`task_update` plan tool calls with a compact "Plan" task checklist block, keeping plan progress visible without exposing internal task tools.
+- `seshat doctor` command backed by reusable `pkg/doctor` diagnostics for local config, runtime paths, SQLite session storage, provider credentials, and helper tools.
+- TUI settings hub now exposes the same doctor diagnostics in a scrollable "Doctor" dialog with refresh support.
+- `pkg/repomap`, `seshat repomap`, and the read-only `repo_map` tool provide Go-first repository structure summaries, with optional system-context injection via `SESHAT_REPO_MAP=1`.
+- Local background session commands: `seshat run --bg [--name NAME] "PROMPT"` starts a detached child process, while `seshat ps`, `seshat logs <id-or-name> [-f]`, `seshat attach <id-or-name>`, and `seshat kill <id-or-name>` manage tracked background runs.
+- `pkg/workflow`, `Client.RunWorkflow`, and `seshat workflow run <file>` provide a minimal static YAML/JSON DAG runner: nodes declare `needs`, independent nodes run in parallel, and dependency outputs are injected into downstream prompts.
+- `workflow_draft` and `sdk.DraftWorkflow` let agents and headless hosts validate and render reusable static workflow DAG definitions before saving or running them.
+- Workflow nodes now support `kind: agent|verifier|critic|router`; role-specific prompt scaffolding helps agents build review, critique, and routing stages while keeping the runner's execution model static.
+- `pkg/companion`, `ClientConfig.Companion`, and `seshat companion` add a headless-first companion profile that can inject a lightweight collaboration presence into sessions without replacing the core Seshat system prompt.
+- Kimi/Moonshot is now consistently available from CLI and TUI provider setup, using the international `https://api.moonshot.ai/v1` endpoint and OpenAI-compatible Bearer auth.
+
 ## [1.1.0] — 2026-08-01
 
 ### Added

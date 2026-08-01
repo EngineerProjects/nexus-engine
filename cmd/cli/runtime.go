@@ -17,6 +17,7 @@ import (
 	"github.com/KPO-Tech/seshat/internal/rag/reranker"
 	"github.com/KPO-Tech/seshat/internal/storage"
 	"github.com/KPO-Tech/seshat/internal/vector"
+	"github.com/KPO-Tech/seshat/pkg/companion"
 	engineconfig "github.com/KPO-Tech/seshat/pkg/config"
 	"github.com/KPO-Tech/seshat/pkg/runtimepath"
 	"github.com/KPO-Tech/seshat/pkg/sdk"
@@ -57,6 +58,7 @@ type runtimeOptions struct {
 	ImageGeneration *sdk.ImageGenerationConfig
 	TextToSpeech    *sdk.TextToSpeechConfig
 	SpeechToText    *sdk.SpeechToTextConfig
+	Companion       *companion.Profile
 }
 
 type runtimeOverrides struct {
@@ -121,6 +123,11 @@ func loadRuntimeOptions(overrides runtimeOverrides) (runtimeOptions, error) {
 
 	hnswDir := runtimepath.HNSWDataDir(config.RuntimeRoot)
 	ragSQLitePath := runtimepath.RAGSQLiteDBPath(config.RuntimeRoot)
+	companionProfile, companionErr := companion.Load(config.RuntimeRoot)
+	var companionPtr *companion.Profile
+	if companionErr == nil && companionProfile.Enabled {
+		companionPtr = &companionProfile
+	}
 
 	return runtimeOptions{
 		Model:                   model,
@@ -141,6 +148,7 @@ func loadRuntimeOptions(overrides runtimeOverrides) (runtimeOptions, error) {
 		StorageGCNamespaces:     splitCommaList(config.StorageGCNamespaces),
 		Debug:                   config.Debug,
 		RAGService:              buildRAGService(hnswDir, ragSQLitePath),
+		Companion:               companionPtr,
 	}, nil
 }
 
@@ -230,6 +238,7 @@ func newClient(
 		ImageGeneration:         options.ImageGeneration,
 		TextToSpeech:            options.TextToSpeech,
 		SpeechToText:            options.SpeechToText,
+		Companion:               options.Companion,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("create SDK client: %w", err)

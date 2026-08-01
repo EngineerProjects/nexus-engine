@@ -1,6 +1,7 @@
 package chat
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/KPO-Tech/seshat/internal/seshattui/message"
@@ -74,6 +75,43 @@ func TestShouldRenderToolNameHidesPlanReviewSystemTools(t *testing.T) {
 	}
 	if !ShouldRenderToolName("bash") {
 		t.Fatalf("expected bash to remain visible in chat")
+	}
+}
+
+func TestExtractMessageItemsBuildsPlanTaskPanel(t *testing.T) {
+	msg := &message.Message{
+		ID:   "assistant-plan",
+		Role: message.Assistant,
+		Parts: []message.ContentPart{
+			message.ToolCall{ID: "create-1", Name: taskTool.ToolNameTaskCreate, Input: `{"subject":"Inspect auth flow","description":"Check auth"}`, Finished: true},
+			message.ToolCall{ID: "update-1", Name: taskTool.ToolNameTaskUpdate, Input: `{"taskId":"t1","status":"completed"}`, Finished: true},
+		},
+	}
+	results := map[string]message.ToolResult{
+		"create-1": {
+			ToolCallID: "create-1",
+			Name:       taskTool.ToolNameTaskCreate,
+			Data:       `{"task":{"id":"t1","subject":"Inspect auth flow"}}`,
+		},
+	}
+
+	items := ExtractMessageItems(&styles.Styles{}, msg, results)
+	if len(items) != 1 {
+		t.Fatalf("expected one plan task panel, got %d", len(items))
+	}
+	panel, ok := items[0].(*PlanTaskListMessageItem)
+	if !ok {
+		t.Fatalf("expected PlanTaskListMessageItem, got %T", items[0])
+	}
+	rendered := panel.RawRender(80)
+	if !strings.Contains(rendered, "Plan") {
+		t.Fatalf("expected rendered panel title, got %q", rendered)
+	}
+	if !strings.Contains(rendered, "Inspect auth flow") {
+		t.Fatalf("expected task subject, got %q", rendered)
+	}
+	if !strings.Contains(rendered, "✓") {
+		t.Fatalf("expected completed task marker, got %q", rendered)
 	}
 }
 

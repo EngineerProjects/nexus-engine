@@ -4,10 +4,14 @@
 package goal
 
 import (
+	"context"
+	"database/sql"
 	"fmt"
 	"strings"
 	"sync"
 	"time"
+
+	dbpkg "github.com/KPO-Tech/seshat/internal/db"
 )
 
 // MaxObjectiveChars mirrors Codex's MAX_THREAD_GOAL_OBJECTIVE_CHARS.
@@ -46,6 +50,18 @@ type Goal struct {
 	startedAt time.Time
 }
 
+func (g *Goal) clone() *Goal {
+	if g == nil {
+		return nil
+	}
+	cp := *g
+	if g.TokenBudget != nil {
+		b := *g.TokenBudget
+		cp.TokenBudget = &b
+	}
+	return &cp
+}
+
 // RemainingTokens returns how many tokens are left in the budget, or -1 if unbounded.
 func (g *Goal) RemainingTokens() int64 {
 	if g.TokenBudget == nil {
@@ -82,12 +98,31 @@ func ValidateObjective(objective string) error {
 // Store is the in-memory goal registry keyed by SessionID.
 // Thread-safe. Mirrors Codex's server-side goal state per thread.
 type Store struct {
-	mu    sync.RWMutex
-	goals map[string]*Goal
+	mu      sync.RWMutex
+	goals   map[string]*Goal
+	backend Backend
 }
 
 func NewStore() *Store {
 	return &Store{goals: make(map[string]*Goal)}
+}
+
+// Backend persists goals behind Store. Implementations must be safe for
+// repeated writes of the same session ID.
+type Backend interface {
+	SaveGoal(*Goal) error
+	LoadGoal(sessionID string) (*Goal, error)
+	DeleteGoal(sessionID string) error
+}
+
+// ErrGoalNotFound is returned by persistent backends when a session has no goal.
+var ErrGoalNotFound = sql.ErrNoRows
+
+// SetBackend installs optional persistent storage for this goal store.
+func (s *Store) SetBackend(backend Backend) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.backend = backend
 }
 
 // Set creates or replaces the goal for sessionID.
@@ -107,7 +142,11 @@ func (s *Store) Set(sessionID, objective string, tokenBudget *int64) *Goal {
 	}
 	s.mu.Lock()
 	s.goals[sessionID] = g
+	backend := s.backend
 	s.mu.Unlock()
+	if backend != nil {
+		_ = backend.SaveGoal(g)
+	}
 	return g
 }
 
@@ -115,14 +154,31 @@ func (s *Store) Set(sessionID, objective string, tokenBudget *int64) *Goal {
 func (s *Store) Get(sessionID string) (*Goal, bool) {
 	s.mu.RLock()
 	g, ok := s.goals[sessionID]
+	backend := s.backend
 	s.mu.RUnlock()
+	if !ok && backend != nil {
+		loaded, err := backend.LoadGoal(sessionID)
+		if err != nil {
+			return nil, false
+		}
+		s.mu.Lock()
+		s.goals[sessionID] = loaded
+		g = loaded
+		ok = true
+		s.mu.Unlock()
+	}
 	if !ok {
 		return nil, false
 	}
 	// Update computed TimeUsedSeconds on read.
 	s.mu.Lock()
 	g.TimeUsedSeconds = int64(time.Since(g.startedAt).Seconds())
+	updated := g.clone()
+	backend = s.backend
 	s.mu.Unlock()
+	if backend != nil {
+		_ = backend.SaveGoal(updated)
+	}
 	return g, true
 }
 
@@ -144,6 +200,9 @@ func (s *Store) Update(sessionID string, newStatus *Status, newObjective *string
 	}
 	g.UpdatedAt = time.Now().UnixMilli()
 	g.TimeUsedSeconds = int64(time.Since(g.startedAt).Seconds())
+	if s.backend != nil {
+		_ = s.backend.SaveGoal(g)
+	}
 	return g, true
 }
 
@@ -162,6 +221,9 @@ func (s *Store) RecordTokenUsage(sessionID string, tokens int64) {
 		g.Status = StatusBudgetLimited
 		g.UpdatedAt = time.Now().UnixMilli()
 	}
+	if s.backend != nil {
+		_ = s.backend.SaveGoal(g)
+	}
 }
 
 // Clear removes the goal for sessionID.
@@ -169,7 +231,11 @@ func (s *Store) RecordTokenUsage(sessionID string, tokens int64) {
 func (s *Store) Clear(sessionID string) {
 	s.mu.Lock()
 	delete(s.goals, sessionID)
+	backend := s.backend
 	s.mu.Unlock()
+	if backend != nil {
+		_ = backend.DeleteGoal(sessionID)
+	}
 }
 
 // ─── Global default store ─────────────────────────────────────────────────────
@@ -185,4 +251,137 @@ func GetDefaultStore() *Store {
 		defaultStore = NewStore()
 	})
 	return defaultStore
+}
+
+// ConfigureDefaultStoreBackend wires persistent storage into the process-level
+// goal store used by the built-in goal tools.
+func ConfigureDefaultStoreBackend(backend Backend) {
+	GetDefaultStore().SetBackend(backend)
+}
+
+// SQLiteBackend stores goals in the shared runtime SQLite database.
+type SQLiteBackend struct {
+	db *dbpkg.DB
+}
+
+// Close releases the owned database handle.
+func (b *SQLiteBackend) Close() error {
+	if b == nil || b.db == nil {
+		return nil
+	}
+	return b.db.Close()
+}
+
+// NewSQLiteBackend creates a goal backend on top of the shared DB module.
+func NewSQLiteBackend(database *dbpkg.DB) (*SQLiteBackend, error) {
+	if database == nil {
+		return nil, fmt.Errorf("database is required")
+	}
+	if database.Driver() != dbpkg.DriverSQLite {
+		return nil, fmt.Errorf("goal sqlite backend requires sqlite database, got %q", database.Driver())
+	}
+	return &SQLiteBackend{db: database}, nil
+}
+
+// OpenSQLiteBackend opens a SQLite-backed goal store.
+func OpenSQLiteBackend(path string) (*SQLiteBackend, error) {
+	database, err := dbpkg.Open(context.Background(), dbpkg.DefaultSQLiteConfig(path))
+	if err != nil {
+		return nil, err
+	}
+	return NewSQLiteBackend(database)
+}
+
+// SaveGoal upserts the goal row for a session.
+func (b *SQLiteBackend) SaveGoal(g *Goal) error {
+	if b == nil || b.db == nil {
+		return fmt.Errorf("goal sqlite backend is closed")
+	}
+	if g == nil {
+		return fmt.Errorf("goal is required")
+	}
+	var tokenBudget any
+	if g.TokenBudget != nil {
+		tokenBudget = *g.TokenBudget
+	}
+	_, err := b.db.SQL().Exec(
+		`INSERT INTO session_goals (
+			session_id, objective, status, token_budget, tokens_used,
+			created_at_unix_ms, updated_at_unix_ms
+		) VALUES (?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(session_id) DO UPDATE SET
+			objective = excluded.objective,
+			status = excluded.status,
+			token_budget = excluded.token_budget,
+			tokens_used = excluded.tokens_used,
+			created_at_unix_ms = excluded.created_at_unix_ms,
+			updated_at_unix_ms = excluded.updated_at_unix_ms`,
+		g.SessionID,
+		g.Objective,
+		string(g.Status),
+		tokenBudget,
+		g.TokensUsed,
+		g.CreatedAt,
+		g.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("save goal %s: %w", g.SessionID, err)
+	}
+	return nil
+}
+
+// LoadGoal returns the persisted goal for a session.
+func (b *SQLiteBackend) LoadGoal(sessionID string) (*Goal, error) {
+	if b == nil || b.db == nil {
+		return nil, fmt.Errorf("goal sqlite backend is closed")
+	}
+	var (
+		objective string
+		status    string
+		budget    sql.NullInt64
+		tokens    int64
+		createdAt int64
+		updatedAt int64
+	)
+	err := b.db.SQL().QueryRow(
+		`SELECT objective, status, token_budget, tokens_used, created_at_unix_ms, updated_at_unix_ms
+		 FROM session_goals WHERE session_id = ?`,
+		sessionID,
+	).Scan(&objective, &status, &budget, &tokens, &createdAt, &updatedAt)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, ErrGoalNotFound
+		}
+		return nil, fmt.Errorf("load goal %s: %w", sessionID, err)
+	}
+	var tokenBudget *int64
+	if budget.Valid {
+		b := budget.Int64
+		tokenBudget = &b
+	}
+	startedAt := time.UnixMilli(createdAt)
+	g := &Goal{
+		SessionID:       sessionID,
+		Objective:       objective,
+		Status:          Status(status),
+		TokenBudget:     tokenBudget,
+		TokensUsed:      tokens,
+		TimeUsedSeconds: int64(time.Since(startedAt).Seconds()),
+		CreatedAt:       createdAt,
+		UpdatedAt:       updatedAt,
+		startedAt:       startedAt,
+	}
+	return g, nil
+}
+
+// DeleteGoal removes a persisted goal for a session.
+func (b *SQLiteBackend) DeleteGoal(sessionID string) error {
+	if b == nil || b.db == nil {
+		return fmt.Errorf("goal sqlite backend is closed")
+	}
+	_, err := b.db.SQL().Exec(`DELETE FROM session_goals WHERE session_id = ?`, sessionID)
+	if err != nil {
+		return fmt.Errorf("delete goal %s: %w", sessionID, err)
+	}
+	return nil
 }

@@ -77,7 +77,7 @@ func apiEndpointFor(providerID string) string {
 	case "workers-ai":
 		return "https://api.cloudflare.com/client/v4/accounts"
 	case "kimi":
-		return "https://api.moonshot.cn/v1"
+		return "https://api.moonshot.ai/v1"
 	case "ollama":
 		return "http://localhost:11434"
 	default:

@@ -1,9 +1,13 @@
 package goal
 
 import (
+	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	dbpkg "github.com/KPO-Tech/seshat/internal/db"
 )
 
 // ─── Store tests ──────────────────────────────────────────────────────────────
@@ -178,6 +182,71 @@ func TestStore_TimeUsedSeconds(t *testing.T) {
 	g, _ := s.Get("sess-1")
 	if g.TimeUsedSeconds < 0 {
 		t.Errorf("TimeUsedSeconds should be non-negative, got %d", g.TimeUsedSeconds)
+	}
+}
+
+func TestStore_SQLiteBackendPersistsAcrossStores(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "goals.sqlite")
+	database, err := dbpkg.Open(context.Background(), dbpkg.DefaultSQLiteConfig(dbPath))
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+	now := time.Now().Unix()
+	if _, err := database.SQL().Exec(
+		`INSERT INTO session_metadata (session_id, status, created_at_unix, updated_at_unix, metadata_json)
+		 VALUES (?, ?, ?, ?, ?)`,
+		"sess-sqlite", "active", now, now, "{}",
+	); err != nil {
+		t.Fatalf("insert session metadata: %v", err)
+	}
+
+	backend, err := NewSQLiteBackend(database)
+	if err != nil {
+		t.Fatalf("new backend: %v", err)
+	}
+	budget := int64(1000)
+	first := NewStore()
+	first.SetBackend(backend)
+	first.Set("sess-sqlite", "persist this goal", &budget)
+	first.RecordTokenUsage("sess-sqlite", 250)
+
+	second := NewStore()
+	second.SetBackend(backend)
+	got, ok := second.Get("sess-sqlite")
+	if !ok {
+		t.Fatal("expected persisted goal")
+	}
+	if got.Objective != "persist this goal" {
+		t.Errorf("objective = %q", got.Objective)
+	}
+	if got.TokensUsed != 250 {
+		t.Errorf("tokens_used = %d, want 250", got.TokensUsed)
+	}
+	if got.TokenBudget == nil || *got.TokenBudget != 1000 {
+		t.Fatalf("token budget = %v, want 1000", got.TokenBudget)
+	}
+
+	complete := StatusComplete
+	if _, ok := second.Update("sess-sqlite", &complete, nil); !ok {
+		t.Fatal("expected update to succeed")
+	}
+
+	third := NewStore()
+	third.SetBackend(backend)
+	got, ok = third.Get("sess-sqlite")
+	if !ok {
+		t.Fatal("expected updated goal")
+	}
+	if got.Status != StatusComplete {
+		t.Errorf("status = %q, want complete", got.Status)
+	}
+
+	third.Clear("sess-sqlite")
+	fourth := NewStore()
+	fourth.SetBackend(backend)
+	if _, ok := fourth.Get("sess-sqlite"); ok {
+		t.Fatal("expected goal to be deleted")
 	}
 }
 

@@ -305,9 +305,10 @@ func TestAskCompletesStreamingMultiToolMonoRun(t *testing.T) {
 	defer server.Close()
 
 	client, err := NewClient(&ClientConfig{
-		PersistSessions: false,
-		PermissionMode:  types.PermissionModeBypass,
-		AutoCompact:     false,
+		PersistSessions:        false,
+		PermissionMode:         types.PermissionModeBypass,
+		AutoCompact:            false,
+		DisableTitleGeneration: true,
 	})
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
@@ -436,9 +437,10 @@ func TestAskEmitsStructuredRuntimeEvents(t *testing.T) {
 
 	var emitted []RuntimeEvent
 	client, err := NewClient(&ClientConfig{
-		PersistSessions: false,
-		PermissionMode:  types.PermissionModeBypass,
-		AutoCompact:     false,
+		PersistSessions:        false,
+		PermissionMode:         types.PermissionModeBypass,
+		AutoCompact:            false,
+		DisableTitleGeneration: true,
 		RuntimeEventFn: func(event RuntimeEvent) {
 			emitted = append(emitted, event)
 		},
@@ -619,9 +621,10 @@ func TestAskCompletesOpenAIMonoRun(t *testing.T) {
 	defer server.Close()
 
 	client, err := NewClient(&ClientConfig{
-		PersistSessions: false,
-		PermissionMode:  types.PermissionModeBypass,
-		AutoCompact:     false,
+		PersistSessions:        false,
+		PermissionMode:         types.PermissionModeBypass,
+		AutoCompact:            false,
+		DisableTitleGeneration: true,
 		Model: types.ModelIdentifier{
 			Provider: types.APIProviderOpenAI,
 			Model:    "gpt-4o-mini",
@@ -743,9 +746,10 @@ func TestAskStreamsResponseChunksToHost(t *testing.T) {
 
 	var chunks []ResponseChunk
 	client, err := NewClient(&ClientConfig{
-		PersistSessions: false,
-		PermissionMode:  types.PermissionModeBypass,
-		AutoCompact:     false,
+		PersistSessions:        false,
+		PermissionMode:         types.PermissionModeBypass,
+		AutoCompact:            false,
+		DisableTitleGeneration: true,
 		Model: types.ModelIdentifier{
 			Provider: types.APIProviderOpenAI,
 			Model:    "gpt-4o-mini",
@@ -1114,9 +1118,10 @@ func TestAskCompletesOllamaMonoRun(t *testing.T) {
 	defer server.Close()
 
 	client, err := NewClient(&ClientConfig{
-		PersistSessions: false,
-		PermissionMode:  types.PermissionModeBypass,
-		AutoCompact:     false,
+		PersistSessions:        false,
+		PermissionMode:         types.PermissionModeBypass,
+		AutoCompact:            false,
+		DisableTitleGeneration: true,
 		Model: types.ModelIdentifier{
 			Provider: types.APIProviderOllama,
 			Model:    "qwen2.5",

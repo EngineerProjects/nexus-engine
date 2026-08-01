@@ -247,6 +247,7 @@ func defaultSettingsSections() []settingsSection {
 		{id: "models", name: "Models", desc: "switch the active AI model", shortcut: "ctrl+m", dialogID: ModelsID},
 		{id: "theme", name: "Theme", desc: "background style and visual appearance", subView: settingsViewTheme},
 		{id: "tools", name: "Tools", desc: "tool UX options and available tool reference", subView: settingsViewTools},
+		{id: "doctor", name: "Doctor", desc: "local runtime, storage, provider, and helper tool diagnostics", dialogID: DoctorID},
 		{id: "mcp", name: "MCP", desc: "MCP server status and management notes", subView: settingsViewMCP},
 		{id: "skills", name: "Skills", desc: "slash-skill workflow and skill path discovery", subView: settingsViewSkills},
 	}
