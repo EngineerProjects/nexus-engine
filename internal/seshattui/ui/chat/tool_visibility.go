@@ -2,7 +2,6 @@ package chat
 
 import (
 	"github.com/KPO-Tech/seshat/internal/seshattui/message"
-	configTool "github.com/KPO-Tech/seshat/internal/tools/special/config"
 	requestPermTool "github.com/KPO-Tech/seshat/internal/tools/special/request_permissions"
 	worktreeTool "github.com/KPO-Tech/seshat/internal/tools/special/worktree"
 	planTool "github.com/KPO-Tech/seshat/internal/tools/system/plan"
@@ -23,8 +22,7 @@ func ShouldRenderToolName(name string) bool {
 	case planTool.ToolNameEnterPlanMode, planTool.ToolNameExitPlanMode, planTool.ToolNameSubmitPlan,
 		taskTool.ToolNameTaskCreate, taskTool.ToolNameTaskUpdate,
 		worktreeTool.ToolNameEnterWorktree, worktreeTool.ToolNameExitWorktree,
-		requestPermTool.ToolName,
-		configTool.ToolNameConfig:
+		requestPermTool.ToolName:
 		return false
 	default:
 		return true

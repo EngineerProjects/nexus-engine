@@ -49,6 +49,24 @@ func NewDefaultFilesystemPolicy() *FilesystemPolicy {
 	}
 }
 
+// ReadDeniedPrefixes returns the path prefixes read access is denied under,
+// for introspection (e.g. the get_config tool) - not a mutable handle.
+func (p *FilesystemPolicy) ReadDeniedPrefixes() []string {
+	if p == nil {
+		p = NewDefaultFilesystemPolicy()
+	}
+	return append([]string(nil), p.readDeniedPrefixes...)
+}
+
+// WriteDeniedPrefixes returns the path prefixes write access is denied
+// under, for introspection (e.g. the get_config tool) - not a mutable handle.
+func (p *FilesystemPolicy) WriteDeniedPrefixes() []string {
+	if p == nil {
+		p = NewDefaultFilesystemPolicy()
+	}
+	return append([]string(nil), p.writeDeniedPrefixes...)
+}
+
 func (p *FilesystemPolicy) EvaluatePath(ctx Context, path string, access AccessKind) (PathDecision, error) {
 	if p == nil {
 		p = NewDefaultFilesystemPolicy()

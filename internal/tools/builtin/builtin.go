@@ -35,6 +35,7 @@ import (
 	devtoTool "github.com/KPO-Tech/seshat/internal/tools/social/devto"
 	hnTool "github.com/KPO-Tech/seshat/internal/tools/social/hackernews"
 	askUserQuestionTool "github.com/KPO-Tech/seshat/internal/tools/special/ask_user"
+	configTool "github.com/KPO-Tech/seshat/internal/tools/special/config"
 	fimtool "github.com/KPO-Tech/seshat/internal/tools/special/fim"
 	goalTool "github.com/KPO-Tech/seshat/internal/tools/special/goal"
 	lspTool "github.com/KPO-Tech/seshat/internal/tools/special/lsp"
@@ -110,6 +111,7 @@ func RegisterBuiltinToolsWithConfig(reg *tool.Registry, config *Config) error {
 		excelTool.NewTool(config.WorkingDir),
 		docxTool.NewTool(config.WorkingDir),
 		pdfwriteTool.NewTool(config.WorkingDir),
+		configTool.NewTool(config.WorkingDir),
 		patchTool.NewApplyPatchTool(config.WorkingDir),
 		fsTool.NewCreateDirectoryTool(config.WorkingDir),
 		fsTool.NewGetMetadataTool(config.WorkingDir),

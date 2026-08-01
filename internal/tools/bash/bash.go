@@ -138,7 +138,7 @@ func NewTool(config *ToolConfig) *Tool {
 		securityValidator: NewSecurityValidator(),
 		commandPolicy:     sandbox.NewDefaultCommandPolicy(),
 		backgroundManager: bm,
-		shell:             detectShell(),
+		shell:             DetectShell(),
 		sandboxExecutor:   sandboxExecutor,
 	}
 }
@@ -876,8 +876,8 @@ func SandboxAvailable() bool {
 	return landlockAvailable()
 }
 
-// detectShell picks the best available shell, cached at startup.
-func detectShell() string {
+// DetectShell picks the best available shell, cached at startup.
+func DetectShell() string {
 	for _, sh := range []string{"bash", "sh", "zsh"} {
 		if _, err := exec.LookPath(sh); err == nil {
 			return sh
