@@ -1052,7 +1052,7 @@ func isAlwaysSafeTool(name string) bool {
 	switch name {
 	case
 		// File read-only
-		"read_file", "grep", "glob", "tree", "list_directory",
+		"read_file", "grep", "glob", "tree", "list_directory", "get_file_metadata",
 		// Web read-only
 		"web_search", "web_fetch", "web_crawl", "web_map",
 		"scholarly_search", "wikipedia",

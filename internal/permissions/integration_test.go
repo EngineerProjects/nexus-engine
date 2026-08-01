@@ -127,6 +127,40 @@ func TestIntegratorAutoModeClassifierDenies(t *testing.T) {
 	}
 }
 
+// TestIntegratorAlwaysSafeToolSkipsClassifierEvenWhenClassifierDenies proves
+// get_file_metadata (and the other tools in isAlwaysSafeTool's file
+// read-only group) never reach the auto-mode classifier at all: with a
+// classifier configured to deny everything, get_file_metadata must still be
+// allowed. get_file_metadata was missing from isAlwaysSafeTool despite being
+// IsReadOnly/RequiresPermission:false in its own tool.Definition() - every
+// call went through the two-stage LLM classifier in Auto mode, adding
+// unnecessary API calls (and, if the classifier's own response failed to
+// parse, an incorrect "blocking for safety" deny) for a plain stat() call
+// that's strictly less sensitive than read_file, which was already exempt.
+func TestIntegratorAlwaysSafeToolSkipsClassifierEvenWhenClassifierDenies(t *testing.T) {
+	t.Setenv("SESHAT_RUNTIME_ROOT", t.TempDir())
+	engine := NewEngine()
+	engine.SetClassifier(&e2eClassifier{allowed: false, reason: "classifier would deny everything"})
+
+	integrator := NewIntegrator(engine)
+	resolver := integrator.ResolverWithContext("s1", "t1", nil, nil)
+
+	result := resolver.ResolvePermission(context.Background(), types.GlobalToolPermissionRequest(
+		"get_file_metadata",
+		map[string]any{"path": "/tmp/some-file.txt"},
+		"tu-safe-1",
+		"s1",
+		"t1",
+		types.PermissionModeAuto,
+		"",
+		nil,
+	))
+
+	if !result.IsAllowed() {
+		t.Fatalf("expected get_file_metadata to be allowed as an always-safe tool without consulting the classifier, got %+v (reason: %v)", result.Behavior, result.DecisionReason)
+	}
+}
+
 // TestIntegratorDenyRuleTakesPrecedenceOverAutoMode verifies that an explicit
 // deny rule fires before the auto-mode classifier is consulted.
 func TestIntegratorDenyRuleTakesPrecedenceOverAutoMode(t *testing.T) {
