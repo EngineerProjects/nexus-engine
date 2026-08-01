@@ -9,6 +9,7 @@ func AllProviders() []SearchProvider {
 		NewJinaProvider(),
 		NewLangSearchProvider(),
 		NewSearXNGProvider(),
+		NewDuckDuckGoProvider(),
 	}
 }
 
@@ -27,6 +28,8 @@ func autoProviderPriority(name string) int {
 		return 35 // free API key, clean JSON, AI-optimised results
 	case "searxng":
 		return 40 // self-hosted, no third-party key required
+	case "duckduckgo":
+		return 90 // no key, no setup, but HTML-scraping is the most fragile - true last resort
 	default:
 		return 100
 	}
