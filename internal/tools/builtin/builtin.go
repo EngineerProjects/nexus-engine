@@ -8,6 +8,7 @@ import (
 	automationTool "github.com/KPO-Tech/seshat/internal/tools/automation"
 	bashTool "github.com/KPO-Tech/seshat/internal/tools/bash"
 	editTool "github.com/KPO-Tech/seshat/internal/tools/files/edit"
+	excelTool "github.com/KPO-Tech/seshat/internal/tools/files/excel"
 	fsTool "github.com/KPO-Tech/seshat/internal/tools/files/fs"
 	globTool "github.com/KPO-Tech/seshat/internal/tools/files/glob"
 	grepTool "github.com/KPO-Tech/seshat/internal/tools/files/grep"
@@ -102,6 +103,7 @@ func RegisterBuiltinToolsWithConfig(reg *tool.Registry, config *Config) error {
 		grepTool.NewGrepTool(config.WorkingDir),
 		writeTool.NewWriteTool(config.WorkingDir),
 		editTool.NewEditTool(config.WorkingDir),
+		excelTool.NewTool(config.WorkingDir),
 		patchTool.NewApplyPatchTool(config.WorkingDir),
 		fsTool.NewCreateDirectoryTool(config.WorkingDir),
 		fsTool.NewGetMetadataTool(config.WorkingDir),
