@@ -12,6 +12,7 @@ import (
 	"time"
 
 	coreagent "github.com/KPO-Tech/seshat/internal/agent"
+	coregoal "github.com/KPO-Tech/seshat/internal/agent/goal"
 	"github.com/KPO-Tech/seshat/internal/engine"
 	"github.com/KPO-Tech/seshat/internal/execution"
 	"github.com/KPO-Tech/seshat/internal/permissions"
@@ -26,6 +27,7 @@ import (
 	taskTool "github.com/KPO-Tech/seshat/internal/tools/task"
 	"github.com/KPO-Tech/seshat/internal/types"
 	browsercore "github.com/KPO-Tech/seshat/internal/web/browser"
+	"github.com/KPO-Tech/seshat/pkg/companion"
 )
 
 // Client provides a high-level SDK for headless AI operations.
@@ -46,6 +48,7 @@ type Client struct {
 	closeErr        error
 	untitledCounter atomic.Int64
 	taskStorePath   string
+	goalBackend     *coregoal.SQLiteBackend
 }
 
 type promptAwareTool interface {
@@ -138,10 +141,17 @@ func NewClient(config *ClientConfig) (*Client, error) {
 
 	monitoringSys := initMonitoringSystem(config)
 
+	var goalBackend *coregoal.SQLiteBackend
 	if config.SessionSQLitePath != "" {
 		if err := taskTool.InitializeGlobalTaskStore(config.SessionSQLitePath); err != nil {
 			return nil, fmt.Errorf("initialize task store: %w", err)
 		}
+		var err error
+		goalBackend, err = coregoal.OpenSQLiteBackend(config.SessionSQLitePath)
+		if err != nil {
+			return nil, fmt.Errorf("initialize goal store: %w", err)
+		}
+		coregoal.ConfigureDefaultStoreBackend(goalBackend)
 	}
 
 	queryEngine := engine.NewEngine(
@@ -189,6 +199,7 @@ func NewClient(config *ClientConfig) (*Client, error) {
 		artifacts:     artifactStore,
 		reaper:        reaper,
 		taskStorePath: config.SessionSQLitePath,
+		goalBackend:   goalBackend,
 	}
 
 	// Register shell pre-tool hooks from ClientConfig.
@@ -254,7 +265,24 @@ func buildEngineConfig(config *ClientConfig) *engine.Config {
 		qc.PromptStageOverrides = pc.StageOverrides
 		qc.PromptToolHints = pc.ToolHints
 	}
+	if config.Companion != nil {
+		if companionPrompt := companion.SystemPrompt(*config.Companion); strings.TrimSpace(companionPrompt) != "" {
+			qc.AppendSystemPrompt = joinPromptParts(qc.AppendSystemPrompt, companionPrompt)
+		}
+	}
 	return qc
+}
+
+func joinPromptParts(existing, extra string) string {
+	existing = strings.TrimSpace(existing)
+	extra = strings.TrimSpace(extra)
+	if existing == "" {
+		return extra
+	}
+	if extra == "" {
+		return existing
+	}
+	return existing + "\n\n" + extra
 }
 
 // Ask performs a single-turn query (convenience method).
@@ -419,6 +447,12 @@ func (c *Client) Close() error {
 			if err := taskTool.CloseGlobalTaskStore(c.taskStorePath); err != nil {
 				errs = append(errs, err)
 			}
+		}
+		if c.goalBackend != nil {
+			if err := c.goalBackend.Close(); err != nil {
+				errs = append(errs, err)
+			}
+			coregoal.ConfigureDefaultStoreBackend(nil)
 		}
 		if c.reaper != nil {
 			c.reaper.Stop()

@@ -18,6 +18,7 @@ import (
 	"github.com/KPO-Tech/seshat/internal/seshattui/skills"
 	"github.com/KPO-Tech/seshat/internal/seshattui/ui/common"
 	"github.com/KPO-Tech/seshat/internal/seshattui/ui/util"
+	"github.com/KPO-Tech/seshat/pkg/doctor"
 )
 
 // ActionClose is a message to close the current dialog.
@@ -29,6 +30,11 @@ type ActionQuit = tea.QuitMsg
 // ActionOpenDialog is a message to open a dialog.
 type ActionOpenDialog struct {
 	DialogID string
+}
+
+// ActionOpenDoctor opens or refreshes the doctor diagnostics dialog.
+type ActionOpenDoctor struct {
+	Report doctor.Report
 }
 
 // ActionOpenModels opens the models dialog, optionally focused on a provider.

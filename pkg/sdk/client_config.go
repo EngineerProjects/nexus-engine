@@ -7,6 +7,7 @@ import (
 	"github.com/KPO-Tech/seshat/internal/providers"
 	"github.com/KPO-Tech/seshat/internal/sandbox"
 	bashTool "github.com/KPO-Tech/seshat/internal/tools/bash"
+	"github.com/KPO-Tech/seshat/pkg/companion"
 	"github.com/KPO-Tech/seshat/pkg/runtimepath"
 )
 
@@ -146,8 +147,9 @@ type ClientConfig struct {
 	MaxConsecutiveDenials   int `json:"max_consecutive_denials"`
 
 	// System prompt
-	SystemPromptTemplate string        `json:"system_prompt_template"`
-	PromptConfig         *PromptConfig `json:"-"`
+	SystemPromptTemplate string             `json:"system_prompt_template"`
+	PromptConfig         *PromptConfig      `json:"-"`
+	Companion            *companion.Profile `json:"companion,omitempty"`
 
 	// Stop hooks
 	StopHooks []StopHook `json:"-"`

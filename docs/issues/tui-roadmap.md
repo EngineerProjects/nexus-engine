@@ -160,7 +160,17 @@ Status: planned
 - The task list is shown as a chat block, not as individual tool rows.
 - `task_create` and `task_update` tool rows are suppressed from the main tool row stream.
 
-Status: planned
+**Implemented v1**:
+- `task_create` and `task_update` remain hidden from the main chat stream.
+- The first hidden plan task call in an assistant turn inserts one compact "Plan" checklist block.
+- The block reconstructs task titles from `task_create` inputs/results and applies same-turn `task_update` statuses.
+
+**Remaining work**:
+- Keep a live task panel updated across streaming progress events, not only after message extraction.
+- Reconcile updates that target tasks created in previous turns by reading from the task store instead of showing the task ID as a fallback label.
+- Connect plan-mode state to the header/status lane so users can see when planning is active.
+
+Status: in progress
 
 ---
 

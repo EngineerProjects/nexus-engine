@@ -41,8 +41,10 @@ import (
 	lspTool "github.com/KPO-Tech/seshat/internal/tools/special/lsp"
 	memoryTool "github.com/KPO-Tech/seshat/internal/tools/special/memory"
 	ragTool "github.com/KPO-Tech/seshat/internal/tools/special/rag"
+	repomapTool "github.com/KPO-Tech/seshat/internal/tools/special/repomap"
 	requestPermissionsTool "github.com/KPO-Tech/seshat/internal/tools/special/request_permissions"
 	toolSearchTool "github.com/KPO-Tech/seshat/internal/tools/special/tool_search"
+	workflowTool "github.com/KPO-Tech/seshat/internal/tools/special/workflow"
 	worktreeTool "github.com/KPO-Tech/seshat/internal/tools/special/worktree"
 	"github.com/KPO-Tech/seshat/internal/tools/system/mcp"
 	planTool "github.com/KPO-Tech/seshat/internal/tools/system/plan"
@@ -113,6 +115,8 @@ func RegisterBuiltinToolsWithConfig(reg *tool.Registry, config *Config) error {
 		docxTool.NewTool(config.WorkingDir),
 		pdfwriteTool.NewTool(config.WorkingDir),
 		configTool.NewTool(config.WorkingDir),
+		repomapTool.NewTool(config.WorkingDir),
+		workflowTool.NewTool(),
 		patchTool.NewApplyPatchTool(config.WorkingDir),
 		fsTool.NewCreateDirectoryTool(config.WorkingDir),
 		fsTool.NewGetMetadataTool(config.WorkingDir),

@@ -3,10 +3,13 @@ package engine
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/KPO-Tech/seshat/internal/prompt"
 	tool "github.com/KPO-Tech/seshat/internal/tools/registry"
 	"github.com/KPO-Tech/seshat/internal/types"
+	"github.com/KPO-Tech/seshat/pkg/repomap"
 )
 
 // buildAPIRequest builds the provider-facing request data for the current turn.
@@ -55,6 +58,11 @@ func (s *Session) buildAPIRequestForRuntimeTools(ctx context.Context, runtimeToo
 		stage = detectedStage
 	}
 
+	projectInstructions := readProjectInstructions(workingDirectory)
+	if repoMap := s.repoMapContext(ctx, workingDirectory); repoMap != "" {
+		projectInstructions = strings.TrimSpace(projectInstructions + "\n\n" + repoMap)
+	}
+
 	partsInput := prompt.FetchSystemPromptPartsInput{
 		Tools:               runtimeTools,
 		Model:               s.config.Model,
@@ -66,7 +74,7 @@ func (s *Session) buildAPIRequestForRuntimeTools(ctx context.Context, runtimeToo
 		Stage:               stage,
 		StageOverrides:      s.config.PromptStageOverrides,
 		ToolHints:           s.config.PromptToolHints,
-		ProjectInstructions: readProjectInstructions(workingDirectory),
+		ProjectInstructions: projectInstructions,
 	}
 
 	parts, err := s.engine.promptBuilder.FetchSystemPromptParts(ctx, partsInput)
@@ -97,4 +105,28 @@ func (s *Session) buildAPIRequestForRuntimeTools(ctx context.Context, runtimeToo
 	}
 
 	return apiReq, nil
+}
+
+func (s *Session) repoMapContext(ctx context.Context, workingDirectory string) string {
+	if !envTruthy(os.Getenv("SESHAT_REPO_MAP")) {
+		return ""
+	}
+	m, err := repomap.Build(ctx, repomap.Options{Root: workingDirectory, TokenBudget: 1024})
+	if err != nil {
+		return ""
+	}
+	rendered := repomap.Render(m, 1024)
+	if strings.TrimSpace(rendered) == "" {
+		return ""
+	}
+	return "<repo_map>\n" + rendered + "\n</repo_map>"
+}
+
+func envTruthy(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "1", "true", "yes", "on", "enabled":
+		return true
+	default:
+		return false
+	}
 }

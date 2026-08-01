@@ -89,6 +89,7 @@ func (d *Overlay) CloseSettingsFamilyDialogs() {
 	d.CloseDialog(ModelsID)
 	d.CloseDialog(NotificationsID)
 	d.CloseDialog(ReasoningID)
+	d.CloseDialog(DoctorID)
 }
 
 // CloseDialog closes the dialog with the specified ID from the stack.

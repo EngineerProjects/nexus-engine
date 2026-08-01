@@ -26,6 +26,10 @@ func runOnce(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 	dbPath := flags.String("db", "", "")
 	showThinking := flags.Bool("show-thinking", false, "")
 	debug := flags.Bool("debug", false, "")
+	background := flags.Bool("bg", false, "")
+	backgroundName := flags.String("name", "", "")
+	backgroundChild := flags.Bool("background-child", false, "")
+	backgroundID := flags.String("background-id", "", "")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
@@ -49,8 +53,36 @@ func runOnce(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 		return err
 	}
 
+	if *background && !*backgroundChild {
+		return runBackgroundSession(backgroundRunConfig{
+			Name:           *backgroundName,
+			Prompt:         prompt,
+			Model:          *model,
+			PermissionMode: *permissionMode,
+			Cwd:            *cwd,
+			DBPath:         *dbPath,
+			ShowThinking:   *showThinking,
+			Debug:          *debug,
+			Options:        options,
+		}, stdout)
+	}
+
+	if *backgroundChild && strings.TrimSpace(*backgroundID) != "" {
+		err := runOnceForeground(ctx, prompt, stdin, stdout, options, *showThinking)
+		if err != nil {
+			_, _ = markBackgroundSessionStatus(*backgroundID, backgroundStatusFailed)
+			return err
+		}
+		_, _ = markBackgroundSessionStatus(*backgroundID, backgroundStatusExited)
+		return nil
+	}
+
+	return runOnceForeground(ctx, prompt, stdin, stdout, options, *showThinking)
+}
+
+func runOnceForeground(ctx context.Context, prompt string, stdin io.Reader, stdout io.Writer, options runtimeOptions, showThinking bool) error {
 	reader := bufio.NewReader(stdin)
-	printer := newStreamPrinter(stdout, *showThinking)
+	printer := newStreamPrinter(stdout, showThinking)
 
 	client, err := newClient(
 		options,
@@ -75,7 +107,7 @@ func runOnce(ctx context.Context, args []string, stdin io.Reader, stdout, stderr
 	if err != nil {
 		return err
 	}
-	if *showThinking && strings.TrimSpace(response.Thinking) != "" {
+	if showThinking && strings.TrimSpace(response.Thinking) != "" {
 		fmt.Fprintln(stdout, "thinking")
 		fmt.Fprintln(stdout, indentBlock(strings.TrimSpace(response.Thinking), "  "))
 	}

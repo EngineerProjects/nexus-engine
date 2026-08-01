@@ -28,3 +28,7 @@ func ShouldRenderToolName(name string) bool {
 		return true
 	}
 }
+
+func isPlanTaskToolName(name string) bool {
+	return name == taskTool.ToolNameTaskCreate || name == taskTool.ToolNameTaskUpdate
+}

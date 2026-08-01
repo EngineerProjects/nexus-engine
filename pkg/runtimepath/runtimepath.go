@@ -84,6 +84,8 @@ func SessionStoreDir(root string) string { return Join(root, "data", "sessions")
 
 func PlansDir(root string) string { return Join(root, "plans") }
 
+func CompanionPath(root string) string { return Join(root, "companion.json") }
+
 func TasksDir(root string) string { return Join(root, "tmp", "tasks") }
 
 func BashTasksDir(root string) string { return Join(root, "tmp", "bash-tasks") }

@@ -94,6 +94,11 @@ func sqliteCoreMigrations() []schemaMigration {
 			Scope: migrationScopeCoreSQLite,
 			Run:   migrateSQLiteAutomationAgentSlug,
 		},
+		{
+			ID:    "20260801_016_session_goals",
+			Scope: migrationScopeCoreSQLite,
+			Run:   migrateSQLiteSessionGoals,
+		},
 	}
 }
 
@@ -126,6 +131,30 @@ func migrateSQLiteRuntimeSessionTables(ctx context.Context, db *DB) error {
 			checkpoint_json TEXT NOT NULL,
 			FOREIGN KEY (session_id) REFERENCES session_metadata(session_id) ON DELETE CASCADE
 		)`,
+	}
+	for _, stmt := range statements {
+		if err := db.gormDB.WithContext(ctx).Exec(stmt).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateSQLiteSessionGoals(ctx context.Context, db *DB) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS session_goals (
+			session_id TEXT PRIMARY KEY,
+			objective TEXT NOT NULL,
+			status TEXT NOT NULL,
+			token_budget INTEGER,
+			tokens_used INTEGER NOT NULL DEFAULT 0,
+			created_at_unix_ms INTEGER NOT NULL,
+			updated_at_unix_ms INTEGER NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_session_goals_status
+			ON session_goals(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_session_goals_updated_at
+			ON session_goals(updated_at_unix_ms DESC)`,
 	}
 	for _, stmt := range statements {
 		if err := db.gormDB.WithContext(ctx).Exec(stmt).Error; err != nil {
