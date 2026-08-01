@@ -23,6 +23,7 @@ const (
 	ProviderModeYou        = internalproviders.ProviderModeYou
 	ProviderModeLinkup     = internalproviders.ProviderModeLinkup
 	ProviderModeMojeek     = internalproviders.ProviderModeMojeek
+	ProviderModeDuckDuckGo = internalproviders.ProviderModeDuckDuckGo
 )
 
 func IsValidMode(mode string) bool {
@@ -79,4 +80,10 @@ func NewSearXNGProviderWithBaseURL(baseURL string) *internalproviders.SearXNGPro
 
 func NewSearXNGProviderWithConfig(baseURL, username, password string) *internalproviders.SearXNGProvider {
 	return internalproviders.NewSearXNGProviderWithConfig(baseURL, username, password)
+}
+
+// NewDuckDuckGoProvider creates a no-API-key search provider (DuckDuckGo's
+// HTML endpoint) - always available, no configuration required.
+func NewDuckDuckGoProvider() *internalproviders.DuckDuckGoProvider {
+	return internalproviders.NewDuckDuckGoProvider()
 }
