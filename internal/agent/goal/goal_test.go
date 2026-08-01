@@ -4,11 +4,58 @@ import (
 	"context"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	dbpkg "github.com/KPO-Tech/seshat/internal/db"
 )
+
+// countingBackend counts SaveGoal calls and optionally blocks on a channel
+// before returning, so tests can prove (a) which Store methods actually
+// trigger a persistence write, and (b) that the write happens without the
+// Store's mutex held.
+type countingBackend struct {
+	saves int64
+	block chan struct{} // if non-nil, SaveGoal waits on this before returning
+	goals map[string]*Goal
+	mu    sync.Mutex
+}
+
+func newCountingBackend() *countingBackend {
+	return &countingBackend{goals: make(map[string]*Goal)}
+}
+
+func (b *countingBackend) SaveGoal(g *Goal) error {
+	atomic.AddInt64(&b.saves, 1)
+	if b.block != nil {
+		<-b.block
+	}
+	b.mu.Lock()
+	b.goals[g.SessionID] = g.clone()
+	b.mu.Unlock()
+	return nil
+}
+
+func (b *countingBackend) LoadGoal(sessionID string) (*Goal, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	g, ok := b.goals[sessionID]
+	if !ok {
+		return nil, ErrGoalNotFound
+	}
+	return g.clone(), nil
+}
+
+func (b *countingBackend) DeleteGoal(sessionID string) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.goals, sessionID)
+	return nil
+}
+
+func (b *countingBackend) saveCount() int64 { return atomic.LoadInt64(&b.saves) }
 
 // ─── Store tests ──────────────────────────────────────────────────────────────
 
@@ -248,6 +295,130 @@ func TestStore_SQLiteBackendPersistsAcrossStores(t *testing.T) {
 	if _, ok := fourth.Get("sess-sqlite"); ok {
 		t.Fatal("expected goal to be deleted")
 	}
+}
+
+// TestStore_Get_DoesNotWriteToBackend is a regression test: Get used to
+// re-save the goal on every call just to refresh the already-derived
+// TimeUsedSeconds field, turning every read into a synchronous write once a
+// persistent backend was wired in. Get is called multiple times per agent
+// turn whenever a goal is active (see runner.go's goal-continuation
+// checks), so this mattered for real, not just in theory.
+func TestStore_Get_DoesNotWriteToBackend(t *testing.T) {
+	backend := newCountingBackend()
+	s := NewStore()
+	s.SetBackend(backend)
+	s.Set("sess-1", "task", nil)
+
+	before := backend.saveCount()
+	for i := 0; i < 5; i++ {
+		if _, ok := s.Get("sess-1"); !ok {
+			t.Fatal("expected goal to be found")
+		}
+	}
+	if got := backend.saveCount(); got != before {
+		t.Errorf("Get triggered %d backend save(s), want 0 (before=%d, after=%d)", got-before, before, got)
+	}
+}
+
+// TestStore_MutatingOperations_StillWriteToBackend guards against the fix
+// above being too aggressive - Set/Update/RecordTokenUsage/Clear must keep
+// persisting, only Get should stop.
+func TestStore_MutatingOperations_StillWriteToBackend(t *testing.T) {
+	backend := newCountingBackend()
+	s := NewStore()
+	s.SetBackend(backend)
+
+	s.Set("sess-1", "task", nil)
+	if backend.saveCount() != 1 {
+		t.Fatalf("Set: expected 1 save, got %d", backend.saveCount())
+	}
+
+	s.RecordTokenUsage("sess-1", 10)
+	if backend.saveCount() != 2 {
+		t.Fatalf("RecordTokenUsage: expected 2 saves, got %d", backend.saveCount())
+	}
+
+	paused := StatusPaused
+	s.Update("sess-1", &paused, nil)
+	if backend.saveCount() != 3 {
+		t.Fatalf("Update: expected 3 saves, got %d", backend.saveCount())
+	}
+}
+
+// TestStore_Get_ReturnsSnapshotNotSharedPointer proves a caller mutating a
+// Goal returned by Get cannot corrupt the Store's internal state - it must
+// go through Update/RecordTokenUsage instead.
+func TestStore_Get_ReturnsSnapshotNotSharedPointer(t *testing.T) {
+	s := NewStore()
+	s.Set("sess-1", "task", nil)
+
+	got, _ := s.Get("sess-1")
+	got.Objective = "mutated from outside"
+	got.TokensUsed = 999999
+
+	fresh, _ := s.Get("sess-1")
+	if fresh.Objective != "task" {
+		t.Errorf("Store state was corrupted by mutating a Get() result: objective = %q", fresh.Objective)
+	}
+	if fresh.TokensUsed != 0 {
+		t.Errorf("Store state was corrupted by mutating a Get() result: tokens_used = %d", fresh.TokensUsed)
+	}
+}
+
+// TestStore_Set_ReturnsSnapshotNotSharedPointer is the same check for Set's
+// return value.
+func TestStore_Set_ReturnsSnapshotNotSharedPointer(t *testing.T) {
+	s := NewStore()
+	g := s.Set("sess-1", "task", nil)
+	g.Objective = "mutated from outside"
+
+	fresh, _ := s.Get("sess-1")
+	if fresh.Objective != "task" {
+		t.Errorf("Store state was corrupted by mutating a Set() result: objective = %q", fresh.Objective)
+	}
+}
+
+// TestStore_Update_BackendIOHappensOutsideLock proves Update releases s.mu
+// before calling into the backend: a slow/blocked SaveGoal for one session
+// must not stall a concurrent Get for a different session. Before the fix,
+// Update held s.mu for the full duration of the backend call.
+func TestStore_Update_BackendIOHappensOutsideLock(t *testing.T) {
+	backend := newCountingBackend()
+	s := NewStore()
+	s.SetBackend(backend)
+	s.Set("sess-slow", "slow task", nil)
+	s.Set("sess-other", "other task", nil)
+	backend.block = make(chan struct{}) // block SaveGoal from here on
+
+	done := make(chan struct{})
+	go func() {
+		paused := StatusPaused
+		s.Update("sess-slow", &paused, nil)
+		close(done)
+	}()
+
+	// Give the goroutine a moment to enter Update and start the (blocked)
+	// backend call.
+	time.Sleep(20 * time.Millisecond)
+
+	getDone := make(chan struct{})
+	go func() {
+		if _, ok := s.Get("sess-other"); !ok {
+			t.Error("expected sess-other to be found")
+		}
+		close(getDone)
+	}()
+
+	select {
+	case <-getDone:
+		// Get completed while Update's backend call is still blocked - lock
+		// was released before the I/O, as intended.
+	case <-time.After(2 * time.Second):
+		t.Fatal("Get for an unrelated session was blocked by Update's in-flight backend write - the Store's mutex is being held during backend I/O")
+	}
+
+	close(backend.block)
+	<-done
 }
 
 // ─── ValidateObjective ────────────────────────────────────────────────────────
