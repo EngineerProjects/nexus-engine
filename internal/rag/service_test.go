@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/KPO-Tech/seshat/internal/storage"
 	"github.com/KPO-Tech/seshat/internal/vector"
@@ -112,6 +113,87 @@ func TestServiceSearch_WithFilter(t *testing.T) {
 	}
 }
 
+func TestServiceIngest_SameFileIDReplacesRatherThanDuplicates(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	store := svc.vectors
+
+	if _, err := svc.Ingest(ctx, IngestRequest{
+		CorpusID: "kb", FileID: "doc", Filename: "doc.txt",
+		Text: "alpha one\n\nalpha two\n\nalpha three",
+	}); err != nil {
+		t.Fatalf("first Ingest: %v", err)
+	}
+	first, err := store.Get(ctx, "kb", nil)
+	if err != nil {
+		t.Fatalf("Get after first ingest: %v", err)
+	}
+	if len(first) != 3 {
+		t.Fatalf("expected 3 records after first ingest, got %d", len(first))
+	}
+
+	// Re-ingest the same file_id with the same chunk count - should replace
+	// the 3 existing records in place, not add 3 more.
+	if _, err := svc.Ingest(ctx, IngestRequest{
+		CorpusID: "kb", FileID: "doc", Filename: "doc.txt",
+		Text: "alpha uno\n\nalpha dos\n\nalpha tres",
+	}); err != nil {
+		t.Fatalf("second Ingest: %v", err)
+	}
+	second, err := store.Get(ctx, "kb", nil)
+	if err != nil {
+		t.Fatalf("Get after second ingest: %v", err)
+	}
+	if len(second) != 3 {
+		t.Fatalf("expected 3 records after re-ingest (replaced, not duplicated), got %d", len(second))
+	}
+	for _, r := range second {
+		if strings.Contains(r.Text, "one") || strings.Contains(r.Text, "two") || strings.Contains(r.Text, "three") {
+			t.Errorf("found stale chunk from first ingest still present: %q", r.Text)
+		}
+	}
+}
+
+func TestServiceIngest_ShrunkFileRemovesStaleTrailingChunks(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+	store := svc.vectors
+
+	if _, err := svc.Ingest(ctx, IngestRequest{
+		CorpusID: "kb", FileID: "doc", Filename: "doc.txt",
+		Text: "alpha one\n\nalpha two\n\nalpha three\n\nalpha four",
+	}); err != nil {
+		t.Fatalf("first Ingest: %v", err)
+	}
+	first, err := store.Get(ctx, "kb", nil)
+	if err != nil {
+		t.Fatalf("Get after first ingest: %v", err)
+	}
+	if len(first) != 4 {
+		t.Fatalf("expected 4 records after first ingest, got %d", len(first))
+	}
+
+	// Re-ingest a much shorter version under the same file_id.
+	result, err := svc.Ingest(ctx, IngestRequest{
+		CorpusID: "kb", FileID: "doc", Filename: "doc.txt",
+		Text: "alpha only",
+	})
+	if err != nil {
+		t.Fatalf("second Ingest: %v", err)
+	}
+	if result.Chunks != 1 {
+		t.Fatalf("expected 1 chunk in the shorter version, got %d", result.Chunks)
+	}
+
+	second, err := store.Get(ctx, "kb", nil)
+	if err != nil {
+		t.Fatalf("Get after second ingest: %v", err)
+	}
+	if len(second) != 1 {
+		t.Fatalf("expected the 3 stale trailing chunks to be cleaned up, got %d records: %+v", len(second), second)
+	}
+}
+
 // ─── Chunker tests ────────────────────────────────────────────────────────────
 
 func TestParagraphChunker_Split(t *testing.T) {
@@ -143,6 +225,40 @@ func TestParagraphChunker_HardCap(t *testing.T) {
 		if len(ch.Text) > 10 {
 			t.Errorf("chunk exceeds cap: %q (%d chars)", ch.Text, len(ch.Text))
 		}
+	}
+}
+
+func TestParagraphChunker_Split_RuneSafeWithMultibyteText(t *testing.T) {
+	ctx := context.Background()
+	// "é", "è", "à" are 2-byte UTF-8 sequences - a byte-index cut has good
+	// odds of landing inside one of them for a maxChars small enough to
+	// force a split partway through this sentence.
+	text := strings.Repeat("café à côté déjà générée ", 20)
+	c := ParagraphChunker{MaxChunkChars: 37}
+	chunks, err := c.Split(ctx, text)
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	if len(chunks) < 2 {
+		t.Fatalf("expected multiple chunks to exercise the cut boundary, got %d", len(chunks))
+	}
+	for i, ch := range chunks {
+		if !utf8.ValidString(ch.Text) {
+			t.Errorf("chunk %d is not valid UTF-8: %q", i, ch.Text)
+		}
+		if strings.ContainsRune(ch.Text, utf8.RuneError) {
+			t.Errorf("chunk %d contains a replacement rune (corrupted multi-byte char): %q", i, ch.Text)
+		}
+	}
+	// Reassembling should reproduce the same runes with no loss (modulo the
+	// whitespace TrimSpace already normalizes at each boundary).
+	var rebuilt strings.Builder
+	for _, ch := range chunks {
+		rebuilt.WriteString(ch.Text)
+		rebuilt.WriteByte(' ')
+	}
+	if !strings.Contains(rebuilt.String(), "café") || !strings.Contains(rebuilt.String(), "générée") {
+		t.Errorf("expected accented words to survive intact across chunk boundaries, got: %q", rebuilt.String())
 	}
 }
 

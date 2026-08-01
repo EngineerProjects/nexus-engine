@@ -166,6 +166,7 @@ func RegisterBuiltinToolsWithConfig(reg *tool.Registry, config *Config) error {
 		worktreeTool.NewExitWorktreeTool(worktreeTool.DefaultExitWorktreeConfig()),
 		ragTool.NewSearchTool(config.RAGService),
 		ragTool.NewIngestTool(config.RAGService),
+		ragTool.NewDeleteTool(config.RAGService),
 		multimediaTool.NewImageGenTool(config.ImageGenerator),
 		multimediaTool.NewTTSTool(config.TTSGenerator),
 		multimediaTool.NewSTTTool(config.STTTranscriber),

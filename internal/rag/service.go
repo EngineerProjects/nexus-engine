@@ -38,6 +38,15 @@ func (s *Service) SetReranker(r Reranker) {
 	s.reranker = r
 }
 
+// Vectors returns the underlying vector store, e.g. for callers that need to
+// inspect raw records directly (tests, admin tooling).
+func (s *Service) Vectors() vector.Store {
+	if s == nil {
+		return nil
+	}
+	return s.vectors
+}
+
 // DeleteNamespace removes all vector records for the given corpus namespace.
 func (s *Service) DeleteNamespace(ctx context.Context, namespace string) error {
 	if s == nil || s.vectors == nil {
@@ -60,6 +69,14 @@ func (s *Service) DeleteFileChunks(ctx context.Context, namespace, artifactKey s
 	return s.vectors.DeleteKeys(ctx, namespace, keys)
 }
 
+// ArtifactKey builds the deterministic artifact key for a file within a
+// corpus, matching what Ingest uses internally when FileID is set. Exported
+// so callers (e.g. a delete-by-file tool) can reconstruct it without
+// duplicating the format.
+func ArtifactKey(corpusID, fileID string) string {
+	return fmt.Sprintf("rag/%s/%s", corpusID, fileID)
+}
+
 func (s *Service) Ingest(ctx context.Context, request IngestRequest) (IngestResult, error) {
 	if s == nil || s.vectors == nil || s.embedder == nil {
 		return IngestResult{}, fmt.Errorf("rag service is not fully configured (vectors and embedder required)")
@@ -79,7 +96,7 @@ func (s *Service) Ingest(ctx context.Context, request IngestRequest) (IngestResu
 	// in-place instead of creating orphaned duplicate records.
 	var artifact storage.ArtifactRef
 	if request.FileID != "" {
-		deterministicKey := fmt.Sprintf("rag/%s/%s", request.CorpusID, request.FileID)
+		deterministicKey := ArtifactKey(request.CorpusID, request.FileID)
 		if s.artifacts != nil {
 			if _, err := s.artifacts.Put(ctx, deterministicKey, []byte(request.Text), "text/plain"); err != nil {
 				return IngestResult{}, err
@@ -99,7 +116,7 @@ func (s *Service) Ingest(ctx context.Context, request IngestRequest) (IngestResu
 	} else {
 		// Synthetic ref: stable key derived from corpus + filename.
 		artifact = storage.ArtifactRef{
-			Key:  fmt.Sprintf("rag/%s/%s", request.CorpusID, request.Filename),
+			Key:  ArtifactKey(request.CorpusID, request.Filename),
 			Size: int64(len(request.Text)),
 		}
 	}
@@ -141,11 +158,32 @@ func (s *Service) Ingest(ctx context.Context, request IngestRequest) (IngestResu
 	if err := s.vectors.Upsert(ctx, records); err != nil {
 		return IngestResult{}, err
 	}
+
+	// Re-ingesting a file that shrank (fewer chunks than its previous
+	// version) would otherwise leave the old version's trailing chunks
+	// behind - Upsert only replaces keys present in the new set, it can't
+	// know a key from the old ingest no longer exists in the new one.
+	// DeleteKeys silently no-ops on keys that were never written, so this
+	// blind range-delete is safe even when there was no previous version
+	// (the common case) or the new version is the same size or longer.
+	if request.FileID != "" {
+		if err := s.DeleteFileChunks(ctx, request.CorpusID, artifact.Key, len(records), len(records)+staleChunkCleanupCeiling); err != nil {
+			return IngestResult{}, fmt.Errorf("cleanup stale chunks: %w", err)
+		}
+	}
+
 	return IngestResult{
 		Artifact: artifact,
 		Chunks:   len(records),
 	}, nil
 }
+
+// staleChunkCleanupCeiling bounds how many chunk-position keys beyond the
+// new chunk count are speculatively deleted after a FileID-based re-ingest,
+// to catch a shrunk document's leftover trailing chunks without needing an
+// expensive full-namespace scan to find the previous chunk count. Generous
+// enough to cover any realistic single-document shrink.
+const staleChunkCleanupCeiling = 500
 
 func (s *Service) Search(ctx context.Context, request SearchRequest) (SearchResponse, error) {
 	if s == nil || s.vectors == nil || s.embedder == nil {

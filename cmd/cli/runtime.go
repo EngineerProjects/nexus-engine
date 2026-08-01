@@ -14,6 +14,8 @@ import (
 	"github.com/KPO-Tech/seshat/internal/providers"
 	internalrag "github.com/KPO-Tech/seshat/internal/rag"
 	"github.com/KPO-Tech/seshat/internal/rag/embedder"
+	"github.com/KPO-Tech/seshat/internal/rag/reranker"
+	"github.com/KPO-Tech/seshat/internal/storage"
 	"github.com/KPO-Tech/seshat/internal/vector"
 	engineconfig "github.com/KPO-Tech/seshat/pkg/config"
 	"github.com/KPO-Tech/seshat/pkg/runtimepath"
@@ -118,6 +120,7 @@ func loadRuntimeOptions(overrides runtimeOverrides) (runtimeOptions, error) {
 	apiKey := engineconfig.ResolveAPIKey(config, model.Provider)
 
 	hnswDir := runtimepath.HNSWDataDir(config.RuntimeRoot)
+	ragSQLitePath := runtimepath.RAGSQLiteDBPath(config.RuntimeRoot)
 
 	return runtimeOptions{
 		Model:                   model,
@@ -137,7 +140,7 @@ func loadRuntimeOptions(overrides runtimeOverrides) (runtimeOptions, error) {
 		StorageGCLimit:          config.StorageGCLimit,
 		StorageGCNamespaces:     splitCommaList(config.StorageGCNamespaces),
 		Debug:                   config.Debug,
-		RAGService:              buildRAGService(hnswDir),
+		RAGService:              buildRAGService(hnswDir, ragSQLitePath),
 	}, nil
 }
 
@@ -286,21 +289,52 @@ func parsePermissionMode(raw string) (sdk.PermissionMode, error) {
 	}
 }
 
-// buildRAGService creates an HNSW-backed RAG service when an embedding provider
-// is configured via env vars (RAG_EMBEDDING_URL + RAG_EMBEDDING_MODEL).
+// buildRAGService creates a RAG service when an embedding provider is
+// configured via env vars (RAG_EMBEDDING_URL + RAG_EMBEDDING_MODEL).
 // Returns nil when embedding is not configured — rag_ingest / rag_search tools
 // will then be unavailable but all other tools continue working normally.
-func buildRAGService(hnswDir string) *sdk.RAGService {
+//
+// Vector storage prefers the embedded HNSW backend, falling back to the
+// SQLite backend at sqliteFallbackPath when HNSW isn't available - notably
+// on Windows, where github.com/coder/hnsw's atomic-write dependency
+// (google/renameio) doesn't build (see internal/vector/hnsw_store_windows.go).
+// Without this fallback, RAG was silently disabled on every Windows install
+// regardless of embedding configuration.
+func buildRAGService(hnswDir, sqliteFallbackPath string) *sdk.RAGService {
 	emb := embedder.NewFromEnv()
 	if emb == nil {
 		return nil
 	}
-	store, err := vector.NewHNSWStore(hnswDir)
-	if err != nil {
-		log.Printf("[cli] hnsw vector store unavailable, rag disabled: %v", err)
-		return nil
+
+	var store vector.Store
+	if hnswStore, err := vector.NewHNSWStore(hnswDir); err == nil {
+		store = hnswStore
+	} else {
+		log.Printf("[cli] hnsw vector store unavailable (%v), falling back to sqlite", err)
+		sqliteStore, sqliteErr := vector.OpenSQLiteStore(sqliteFallbackPath)
+		if sqliteErr != nil {
+			log.Printf("[cli] sqlite vector store unavailable, rag disabled: %v", sqliteErr)
+			return nil
+		}
+		store = sqliteStore
 	}
-	return internalrag.NewService(nil, store, emb, nil)
+
+	// Best-effort: RAG still works without artifact storage (chunk text is
+	// preserved in the vector store either way), it just loses the ability
+	// to retrieve the original un-chunked document later.
+	artifacts, _ := storage.DefaultArtifactStore()
+
+	// SemanticChunker groups sentences by embedding similarity instead of
+	// blind paragraph splitting - meaningfully better retrieval quality for
+	// the same embedder that's already configured, at the cost of one extra
+	// embedding call per sentence during ingest.
+	svc := internalrag.NewService(artifacts, store, emb, internalrag.NewSemanticChunker(emb, 0))
+
+	// LangSearchReranker no-ops (IsConfigured() == false) when
+	// LANGSEARCH_API_KEY isn't set, so it's always safe to attach.
+	svc.SetReranker(reranker.NewLangSearchReranker())
+
+	return svc
 }
 
 func resolveModel(config engineconfig.Config) sdk.ModelIdentifier {
