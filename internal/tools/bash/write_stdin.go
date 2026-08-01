@@ -26,7 +26,7 @@ func (t *WriteStdinTool) Definition() tool.Definition {
 	return tool.Definition{
 		Name:        "write_stdin",
 		DisplayName: "Write to Stdin",
-		Description: "Write text to a running background task's stdin. Use this to drive interactive programs (REPLs, debuggers, prompts). Returns any new output produced after writing.",
+		Description: "Write text to a running background task's stdin and read back what it produces. Use this to drive interactive programs — REPLs (python3 -i, node, R --no-save), debuggers, database CLIs (mysql, psql), or any prompt-driven tool started with bash's run_in_background. State (variables, imports, an open connection) persists across calls since the process stays alive between them. Waits for new output, returning as soon as the process looks idle at its next prompt or exits - not a fixed delay.",
 		Category:    "filesystem",
 		InputSchema: schema.FromMap(map[string]any{
 			"type": "object",
