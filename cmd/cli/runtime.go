@@ -289,10 +289,13 @@ func parsePermissionMode(raw string) (sdk.PermissionMode, error) {
 	}
 }
 
-// buildRAGService creates a RAG service when an embedding provider is
-// configured via env vars (RAG_EMBEDDING_URL + RAG_EMBEDDING_MODEL).
-// Returns nil when embedding is not configured — rag_ingest / rag_search tools
-// will then be unavailable but all other tools continue working normally.
+// buildRAGService creates a RAG service. It no longer requires an embedding
+// provider to be configured: without one, rag_ingest/rag_search still work
+// in vectorless mode (pure BM25/keyword ranking via the vector store's
+// full-text index - real FTS5 on SQLite, a coarser keyword-overlap score on
+// HNSW). Configuring RAG_EMBEDDING_URL + RAG_EMBEDDING_MODEL upgrades to
+// semantic (embedding-based) search automatically, no other change needed.
+// Returns nil only when no vector store backend could be constructed at all.
 //
 // Vector storage prefers the embedded HNSW backend, falling back to the
 // SQLite backend at sqliteFallbackPath when HNSW isn't available - notably
@@ -301,10 +304,7 @@ func parsePermissionMode(raw string) (sdk.PermissionMode, error) {
 // Without this fallback, RAG was silently disabled on every Windows install
 // regardless of embedding configuration.
 func buildRAGService(hnswDir, sqliteFallbackPath string) *sdk.RAGService {
-	emb := embedder.NewFromEnv()
-	if emb == nil {
-		return nil
-	}
+	emb := embedder.NewFromEnv() // nil is fine - vectorless mode covers it
 
 	var store vector.Store
 	if hnswStore, err := vector.NewHNSWStore(hnswDir); err == nil {
@@ -325,13 +325,29 @@ func buildRAGService(hnswDir, sqliteFallbackPath string) *sdk.RAGService {
 	artifacts, _ := storage.DefaultArtifactStore()
 
 	// SemanticChunker groups sentences by embedding similarity instead of
-	// blind paragraph splitting - meaningfully better retrieval quality for
-	// the same embedder that's already configured, at the cost of one extra
-	// embedding call per sentence during ingest.
-	svc := internalrag.NewService(artifacts, store, emb, internalrag.NewSemanticChunker(emb, 0))
+	// blind paragraph splitting - meaningfully better retrieval quality, at
+	// the cost of one extra embedding call per sentence during ingest. Needs
+	// a real embedder to work at all; without one NewService defaults to the
+	// plain ParagraphChunker (nil chunker).
+	//
+	// embForService must be a genuinely nil Embedder INTERFACE when emb is
+	// nil, not just a nil *embedder.Embedder boxed into one - Service's own
+	// `s.embedder != nil` checks compare the interface, and a nil pointer
+	// wrapped in a non-nil interface value would make that check true, then
+	// panic dereferencing the nil receiver on the first EmbedTexts call.
+	var chunker internalrag.Chunker
+	var embForService internalrag.Embedder
+	if emb != nil {
+		chunker = internalrag.NewSemanticChunker(emb, 0)
+		embForService = emb
+	}
+
+	svc := internalrag.NewService(artifacts, store, embForService, chunker)
 
 	// LangSearchReranker no-ops (IsConfigured() == false) when
-	// LANGSEARCH_API_KEY isn't set, so it's always safe to attach.
+	// LANGSEARCH_API_KEY isn't set, so it's always safe to attach. It scores
+	// raw text against the query text, not embeddings, so it works in
+	// vectorless mode too.
 	svc.SetReranker(reranker.NewLangSearchReranker())
 
 	return svc

@@ -122,6 +122,12 @@ func (n *hnswNamespace) saveMeta() error {
 }
 
 // Upsert inserts or replaces records. Saves index and metadata atomically after each namespace batch.
+//
+// A record with an empty Vector (vectorless / no-embedder ingest) is stored
+// in the metadata map but never added to the HNSW graph itself - the graph
+// requires a fixed dimensionality for distance computation and can't index
+// a vector-less entry. It's still found by a vectorless Search (see
+// searchKeywordOnly), just invisible to real ANN vector search.
 func (s *HNSWStore) Upsert(ctx context.Context, records []Record) error {
 	byNS := make(map[string][]Record, 1)
 	for _, r := range records {
@@ -130,9 +136,6 @@ func (s *HNSWStore) Upsert(ctx context.Context, records []Record) error {
 		}
 		if r.Key == "" {
 			return fmt.Errorf("vector key is required")
-		}
-		if len(r.Vector) == 0 {
-			return fmt.Errorf("vector values are required for key %q", r.Key)
 		}
 		byNS[r.Namespace] = append(byNS[r.Namespace], r)
 	}
@@ -144,7 +147,9 @@ func (s *HNSWStore) Upsert(ctx context.Context, records []Record) error {
 		}
 		n.mu.Lock()
 		for _, r := range recs {
-			n.graph.Add(hnsw.MakeNode(r.Key, r.Vector))
+			if len(r.Vector) > 0 {
+				n.graph.Add(hnsw.MakeNode(r.Key, r.Vector))
+			}
 			n.meta[r.Key] = hnswMeta{Text: r.Text, Metadata: r.Metadata}
 		}
 		saveErr := n.graph.Save()
@@ -164,9 +169,6 @@ func (s *HNSWStore) Search(ctx context.Context, query Query) ([]SearchResult, er
 	if query.Namespace == "" {
 		return nil, fmt.Errorf("vector query namespace is required")
 	}
-	if len(query.Vector) == 0 {
-		return nil, fmt.Errorf("vector query values are required")
-	}
 	topK := query.TopK
 	if topK <= 0 {
 		topK = 5
@@ -179,6 +181,13 @@ func (s *HNSWStore) Search(ctx context.Context, query Query) ([]SearchResult, er
 
 	n.mu.RLock()
 	defer n.mu.RUnlock()
+
+	if len(query.Vector) == 0 {
+		if strings.TrimSpace(query.QueryText) == "" {
+			return nil, fmt.Errorf("vector query values or query text are required")
+		}
+		return searchKeywordOnly(n, query, topK), nil
+	}
 
 	if n.graph.Len() == 0 {
 		return nil, nil
@@ -301,25 +310,41 @@ func (s *HNSWStore) DeleteKeys(ctx context.Context, namespace string, keys []str
 	return nil
 }
 
-// hnswBlendKeyword blends HNSW cosine scores with a simple keyword presence score.
+// hnswBlendKeyword blends HNSW cosine scores with keywordScore.
 // This replaces FTS5 BM25 (unavailable in the standalone HNSW backend).
 // Score per result = (1-hw)*vector_score + hw*keyword_score
-// where keyword_score = fraction of query tokens found in the result text.
 func hnswBlendKeyword(results []SearchResult, queryText string, hw float32) []SearchResult {
-	tokens := strings.Fields(strings.ToLower(queryText))
-	if len(tokens) == 0 {
-		return results
-	}
 	for i := range results {
-		text := strings.ToLower(results[i].Record.Text)
-		var hits float32
-		for _, tok := range tokens {
-			if strings.Contains(text, tok) {
-				hits++
-			}
-		}
-		kwScore := hits / float32(len(tokens))
+		kwScore := keywordScore(results[i].Record.Text, queryText)
 		results[i].Score = (1-hw)*results[i].Score + hw*kwScore
+	}
+	return results
+}
+
+// searchKeywordOnly ranks every record in the namespace by keywordScore
+// alone - used for vectorless (no-embedder) queries, where there's no query
+// vector to run ANN search with at all. Linear scan: fine for CLI-scale
+// corpora, and it's the only option here since the HNSW graph itself can't
+// be searched without a vector.
+func searchKeywordOnly(n *hnswNamespace, query Query, topK int) []SearchResult {
+	results := make([]SearchResult, 0, len(n.meta))
+	for key, m := range n.meta {
+		r := Record{Namespace: query.Namespace, Key: key, Text: m.Text, Metadata: m.Metadata}
+		if len(query.Filter) > 0 && !matchesFilter(r, query.Filter) {
+			continue
+		}
+		score := keywordScore(m.Text, query.QueryText)
+		if score <= 0 {
+			// A real FTS/BM25 index only returns rows that matched at least
+			// one term - mirror that instead of returning every record in
+			// the namespace with a meaningless 0 score.
+			continue
+		}
+		results = append(results, SearchResult{Record: r, Score: score})
+	}
+	sort.Slice(results, func(i, j int) bool { return results[i].Score > results[j].Score })
+	if len(results) > topK {
+		results = results[:topK]
 	}
 	return results
 }

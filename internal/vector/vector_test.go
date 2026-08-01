@@ -496,7 +496,6 @@ func TestSQLiteStore_ValidationErrors(t *testing.T) {
 	}{
 		{"missing namespace", Record{Key: "k", Vector: []float32{1}}},
 		{"missing key", Record{Namespace: "ns", Vector: []float32{1}}},
-		{"missing vector", Record{Namespace: "ns", Key: "k"}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -632,6 +631,117 @@ func TestSQLiteStore_HybridSearch_FilterWithHybrid(t *testing.T) {
 	}
 }
 
+func TestSQLiteStore_Vectorless_UpsertAndSearch(t *testing.T) {
+	store := openTestSQLiteStore(t)
+	ctx := context.Background()
+
+	err := store.Upsert(ctx, []Record{
+		{Namespace: "vl", Key: "a", Text: "the quick brown fox jumps over the lazy dog"},
+		{Namespace: "vl", Key: "b", Text: "an entirely unrelated sentence about weather"},
+	})
+	if err != nil {
+		t.Fatalf("Upsert without vectors: %v", err)
+	}
+
+	results, err := store.Search(ctx, Query{Namespace: "vl", QueryText: "fox", TopK: 5})
+	if err != nil {
+		t.Fatalf("vectorless Search: %v", err)
+	}
+	if len(results) != 1 || results[0].Record.Key != "a" {
+		t.Fatalf("expected only record 'a' to match 'fox', got %+v", results)
+	}
+	if results[0].Score <= 0 {
+		t.Errorf("expected a positive (higher-is-better) BM25 score, got %f", results[0].Score)
+	}
+}
+
+func TestSQLiteStore_Vectorless_RequiresQueryText(t *testing.T) {
+	store := openTestSQLiteStore(t)
+	ctx := context.Background()
+	_, err := store.Search(ctx, Query{Namespace: "vl", TopK: 5})
+	if err == nil {
+		t.Error("expected an error when both Vector and QueryText are empty")
+	}
+}
+
+func TestSQLiteStore_Vectorless_RespectsFilter(t *testing.T) {
+	store := openTestSQLiteStore(t)
+	ctx := context.Background()
+	_ = store.Upsert(ctx, []Record{
+		{Namespace: "vlf", Key: "a", Text: "hello world", Metadata: map[string]string{"src": "doc-a"}},
+		{Namespace: "vlf", Key: "b", Text: "hello world", Metadata: map[string]string{"src": "doc-b"}},
+	})
+	results, err := store.Search(ctx, Query{
+		Namespace: "vlf", QueryText: "hello", TopK: 5,
+		Filter: map[string]any{"src": "doc-a"},
+	})
+	if err != nil {
+		t.Fatalf("Search: %v", err)
+	}
+	for _, r := range results {
+		if r.Record.Metadata["src"] != "doc-a" {
+			t.Errorf("filter bypassed in vectorless search: got src=%s", r.Record.Metadata["src"])
+		}
+	}
+	if len(results) == 0 {
+		t.Error("expected at least one filtered result")
+	}
+}
+
+func TestSQLiteStore_Vectorless_MixedCorpusDoesNotBreakVectorSearch(t *testing.T) {
+	// A record ingested without an embedder (no vector) sitting alongside
+	// vectored records must not break a subsequent real vector search -
+	// cosineSimilarity already returns 0 for an empty operand, so it should
+	// just rank last, never error.
+	store := openTestSQLiteStore(t)
+	ctx := context.Background()
+	err := store.Upsert(ctx, []Record{
+		{Namespace: "mixed", Key: "vectorless", Text: "no vector here"},
+		{Namespace: "mixed", Key: "vectored", Text: "has a vector", Vector: []float32{1, 0}},
+	})
+	if err != nil {
+		t.Fatalf("Upsert mixed corpus: %v", err)
+	}
+	results, err := store.Search(ctx, Query{Namespace: "mixed", Vector: []float32{1, 0}, TopK: 5})
+	if err != nil {
+		t.Fatalf("vector Search over mixed corpus: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected both records to be returned, got %d: %+v", len(results), results)
+	}
+	if results[0].Record.Key != "vectored" {
+		t.Errorf("expected the real-vector record to rank first, got %+v", results)
+	}
+}
+
+func TestMemoryStore_Vectorless_UpsertAndSearch(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+
+	if err := store.Upsert(ctx, []Record{
+		{Namespace: "vl", Key: "a", Text: "the quick brown fox"},
+		{Namespace: "vl", Key: "b", Text: "unrelated text about weather"},
+	}); err != nil {
+		t.Fatalf("Upsert without vectors: %v", err)
+	}
+
+	results, err := store.Search(ctx, Query{Namespace: "vl", QueryText: "fox", TopK: 5})
+	if err != nil {
+		t.Fatalf("vectorless Search: %v", err)
+	}
+	if len(results) != 1 || results[0].Record.Key != "a" {
+		t.Fatalf("expected only record 'a' to match 'fox', got %+v", results)
+	}
+}
+
+func TestMemoryStore_Vectorless_RequiresQueryText(t *testing.T) {
+	store := NewMemoryStore()
+	_, err := store.Search(context.Background(), Query{Namespace: "vl", TopK: 5})
+	if err == nil {
+		t.Error("expected an error when both Vector and QueryText are empty")
+	}
+}
+
 func TestHNSWStore_UpsertSearchPersistence(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("hnsw backend is not available on Windows")
@@ -744,5 +854,45 @@ func TestHNSWStore_HybridKeywordBlend(t *testing.T) {
 	}
 	if results[0].Record.Key != "x" {
 		t.Fatalf("expected 'x' to rank first with keyword 'fox', got %+v", results)
+	}
+}
+
+func TestHNSWStore_Vectorless_UpsertAndSearch(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("hnsw backend is not available on Windows")
+	}
+	dir := t.TempDir()
+	store, err := NewHNSWStore(dir)
+	if err != nil {
+		t.Fatalf("NewHNSWStore: %v", err)
+	}
+
+	if err := store.Upsert(context.Background(), []Record{
+		{Namespace: "vl", Key: "a", Text: "the quick brown fox"},
+		{Namespace: "vl", Key: "b", Text: "unrelated text about weather"},
+	}); err != nil {
+		t.Fatalf("Upsert without vectors: %v", err)
+	}
+
+	results, err := store.Search(context.Background(), Query{Namespace: "vl", QueryText: "fox", TopK: 5})
+	if err != nil {
+		t.Fatalf("vectorless Search: %v", err)
+	}
+	if len(results) != 1 || results[0].Record.Key != "a" {
+		t.Fatalf("expected only record 'a' to match 'fox', got %+v", results)
+	}
+}
+
+func TestHNSWStore_Vectorless_RequiresQueryText(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("hnsw backend is not available on Windows")
+	}
+	dir := t.TempDir()
+	store, err := NewHNSWStore(dir)
+	if err != nil {
+		t.Fatalf("NewHNSWStore: %v", err)
+	}
+	if _, err := store.Search(context.Background(), Query{Namespace: "vl", TopK: 5}); err == nil {
+		t.Error("expected an error when both Vector and QueryText are empty")
 	}
 }

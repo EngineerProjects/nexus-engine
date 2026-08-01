@@ -26,7 +26,7 @@ func (t *IngestTool) Definition() tool.Definition {
 		Name:        ToolIngestName,
 		DisplayName: "RAG Ingest",
 		SearchHint:  IngestHint,
-		Description: "Chunk and embed a text document into a named corpus for later semantic search. Re-ingesting the same file_id (or, absent that, the same filename) replaces its chunks in-place instead of duplicating them. Returns the artifact key and chunk count.",
+		Description: "Chunk a text document into a named corpus for later search. Embeds each chunk for semantic search when an embedding provider is configured; otherwise chunks are indexed for keyword/BM25 search instead (still works, no embedder required). Re-ingesting the same file_id (or, absent that, the same filename) replaces its chunks in-place instead of duplicating them. Returns the artifact key and chunk count.",
 		Category:    "rag",
 		InputSchema: schema.FromMap(map[string]any{
 			"type": "object",

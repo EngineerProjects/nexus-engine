@@ -19,19 +19,29 @@ type Record struct {
 // IN operator:      {"source_file": {"$in": ["a.txt", "b.txt"]}}
 type Query struct {
 	Namespace string
-	Vector    []float32
-	TopK      int
-	Filter    map[string]any // optional; nil = no filter
+	// Vector is the query embedding. Leave empty (nil) for a "vectorless"
+	// query - pure keyword/BM25 ranking via QueryText, no embedding call
+	// needed at all. Requires QueryText to be set. SQLite and Memory
+	// support this directly; HNSW falls back to a coarser keyword-overlap
+	// score; Chroma/Qdrant/pgvector return an error (not yet implemented -
+	// none of them are wired into the CLI today, unlike SQLite/HNSW).
+	// When Vector is non-empty, HybridWeight controls how much (if any)
+	// keyword scoring blends in on top of it; when Vector is empty,
+	// HybridWeight is ignored (scoring is 100% keyword either way).
+	Vector []float32
+	TopK   int
+	Filter map[string]any // optional; nil = no filter
 
 	// HybridWeight blends BM25 keyword search with vector similarity.
 	//   0   (default) → pure vector
 	//   1             → pure BM25
 	//   0 < w < 1    → linear blend: (1-w)*vector + w*bm25
 	// Only the SQLite and pgvector backends implement BM25; others ignore it.
+	// Meaningless when Vector is empty - see the Vector field doc.
 	HybridWeight float32
 
-	// QueryText is the raw query string used for BM25 scoring.
-	// Must be non-empty when HybridWeight > 0.
+	// QueryText is the raw query string used for BM25/keyword scoring.
+	// Must be non-empty when HybridWeight > 0, or when Vector is empty.
 	QueryText string
 }
 
