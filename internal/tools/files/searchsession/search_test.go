@@ -3,6 +3,7 @@ package searchsession
 import (
 	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -12,6 +13,18 @@ import (
 	tool "github.com/KPO-Tech/seshat/internal/tools/registry"
 	"github.com/KPO-Tech/seshat/internal/types"
 )
+
+// requireRipgrep skips the test when rg isn't on PATH - the streaming
+// search tests spawn a real rg subprocess (that's the point: proving the
+// spawn -> output-file -> job_output chain actually works, not just that
+// search_start's own response is formatted correctly), but not every CI
+// environment has ripgrep installed.
+func requireRipgrep(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("rg"); err != nil {
+		t.Skip("ripgrep (rg) not found on PATH, skipping")
+	}
+}
 
 // newTestTaskManager wires a fresh, isolated BackgroundTaskManager as the
 // package-level global search_start relies on (via bashTool.GlobalTaskManager()),
@@ -97,6 +110,7 @@ func TestSearchOfficeFiles_GlobFilter(t *testing.T) {
 }
 
 func TestTool_Call_StartsBackgroundSearchAndOfficeMatchesReturnImmediately(t *testing.T) {
+	requireRipgrep(t)
 	newTestTaskManager(t)
 
 	dir := t.TempDir()
@@ -191,10 +205,17 @@ func TestTool_ValidateInput(t *testing.T) {
 }
 
 func TestTool_CheckPermissions_UNCBlocked(t *testing.T) {
+	// "//" (forward slashes) rather than "\\" (backslashes): IsUNCPath checks
+	// for either prefix, but a backslash-prefixed path is only ever treated
+	// as absolute by filepath.IsAbs on Windows - on Linux (where CI runs)
+	// resolvePath would instead join it onto the working directory as a
+	// relative path, mangling it into something that no longer starts with
+	// "\\" or "//" by the time IsUNCPath sees it. "//" is recognized as
+	// absolute (and thus passed through unresolved) on every platform.
 	tl := NewTool("/tmp")
 	got := tl.CheckPermissions(context.Background(), map[string]any{
 		"pattern": "x",
-		"path":    `\\evil\share`,
+		"path":    "//evil/share",
 	}, defaultToolCtx())
 	if got.Behavior != types.PermissionBehaviorDeny {
 		t.Errorf("expected Deny for a UNC path, got %v", got.Behavior)
