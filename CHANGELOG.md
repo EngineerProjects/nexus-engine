@@ -9,6 +9,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.1.0] — 2026-08-01
+
 ### Added
 - `excel_edit` tool: create/edit `.xlsx` cells and formulas natively (excelize), with a read-before-write gate matching `write_file`/`edit_file`.
 - `docx_edit` tool: create Word documents from plain/markdown-ish text (`#`.."######" → real Word heading styles) or find/replace edit existing ones, with fuzzy-match diagnostics on a near-miss.
@@ -66,10 +68,5 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `internal/tools/special/brief`: a "send message to the user" tool from the pre-rename codebase, never registered at any point in its history.
 - `internal/tools/special/config/configTool.go`: an arbitrary key/value settings store predating the current `contract.Tool` interface (incompatible signatures — could never have been registered as-is), replaced by the real `get_config` tool.
 
----
-
-## [0.1.0] — Initial public release (pending)
-
-*This release has not been cut yet. The engine is in active development on `main`.*
-
-[Unreleased]: https://github.com/KPO-Tech/seshat/compare/HEAD...HEAD
+[Unreleased]: https://github.com/KPO-Tech/seshat/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/KPO-Tech/seshat/compare/v1.0.4...v1.1.0
