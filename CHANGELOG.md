@@ -27,6 +27,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `pkg/rag/embedder`: `FromEnv()`/`NewFromEnv()` (parity with `pkg/rag/reranker`).
 - `pkg/web/search/providers`: `NewDuckDuckGoProvider()` and `ProviderModeDuckDuckGo` (parity with the other providers in the same file).
 - `pkg/rag`: `ParagraphChunker`, `SemanticChunker`, `DefaultChunker()`, `NewSemanticChunker()`, `ArtifactKey()` — `NewService` requires a `Chunker` argument, but no implementation was previously reachable from the public API.
+- `pkg/image` + `pkg/image/providers` (OpenAI DALL-E, Google Imagen) and `pkg/audio/stt` + `pkg/audio/tts` + `pkg/audio/providers` (OpenAI Whisper/TTS): standalone client libraries, mirroring `pkg/docling` — a host application can now call image/speech generation directly (e.g. a UI where a human types a prompt) without going through the agent's LLM tool-calling loop for a deterministic action. The same provider implementations power both the direct call and the `generate_image`/`text_to_speech`/`speech_to_text` agent tools. `WithSTTBaseURL`/`WithOpenAIBaseURL`/`WithTTSBaseURL` all support pointing at a self-hosted, OpenAI-API-compatible server (e.g. a local whisper.cpp instance) with no API key.
 - Session auto-title generation feature: AI auto-titles sessions after the first successful turn using the user message.
 - `OnSessionTitled` callback and `DisableTitleGeneration` configuration options in `ClientConfig`.
 - `CredentialResolver` interface in `pkg/sdk` — allows per-request API key injection without touching `ClientConfig.APIKey`
