@@ -15,6 +15,7 @@ import (
 	patchTool "github.com/KPO-Tech/seshat/internal/tools/files/patch"
 	fileReadTool "github.com/KPO-Tech/seshat/internal/tools/files/read"
 	readURLTool "github.com/KPO-Tech/seshat/internal/tools/files/read_url"
+	searchsessionTool "github.com/KPO-Tech/seshat/internal/tools/files/searchsession"
 	writeTool "github.com/KPO-Tech/seshat/internal/tools/files/write"
 	gitTool "github.com/KPO-Tech/seshat/internal/tools/git"
 	calculatorTool "github.com/KPO-Tech/seshat/internal/tools/math/calculator"
@@ -101,6 +102,7 @@ func RegisterBuiltinToolsWithConfig(reg *tool.Registry, config *Config) error {
 		readURLTool.NewTool(readURLConfig),
 		globTool.NewGlobTool(config.WorkingDir),
 		grepTool.NewGrepTool(config.WorkingDir),
+		searchsessionTool.NewTool(config.WorkingDir),
 		writeTool.NewWriteTool(config.WorkingDir),
 		editTool.NewEditTool(config.WorkingDir),
 		excelTool.NewTool(config.WorkingDir),

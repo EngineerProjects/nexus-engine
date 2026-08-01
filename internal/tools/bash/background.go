@@ -165,6 +165,82 @@ func (m *BackgroundTaskManager) StartBackgroundTask(
 	return task, nil
 }
 
+// StartBackgroundTaskArgv starts a background task from an argv array
+// (executable + arguments) instead of a shell command string - no shell
+// involved, so callers building a command from untrusted/dynamic pieces
+// (e.g. a search pattern that might contain quotes or shell metacharacters)
+// don't need to shell-quote anything. Otherwise identical to
+// StartBackgroundTask: same task bookkeeping, output file, stdin pipe, and
+// process-group handling, and it goes through commandWithLandlock the same
+// way (that function wraps any executable+args pair, not just `sh -c`).
+func (m *BackgroundTaskManager) StartBackgroundTaskArgv(
+	ctx context.Context,
+	name string,
+	args []string,
+	workingDir string,
+	env []string,
+) (*BackgroundTask, error) {
+	if err := m.Init(); err != nil {
+		return nil, fmt.Errorf("init task dir: %w", err)
+	}
+
+	taskID, err := generateTaskID()
+	if err != nil {
+		return nil, fmt.Errorf("generate task id: %w", err)
+	}
+	taskPath := filepath.Join(m.taskDir, taskID+".output")
+
+	task := &BackgroundTask{
+		ID:          taskID,
+		Command:     name + " " + strings.Join(args, " "),
+		Output:      NewTaskOutput(taskPath),
+		Status:      TaskStatusRunning,
+		StartTime:   time.Now(),
+		done:        make(chan struct{}),
+		cleanupStop: make(chan struct{}),
+	}
+
+	file, err := os.Create(taskPath)
+	if err != nil {
+		return nil, fmt.Errorf("create output file: %w", err)
+	}
+
+	cmdPath, cmdArgs, sandboxEnv, _ := commandWithLandlock(name, args, workingDir)
+	cmd := exec.CommandContext(ctx, cmdPath, cmdArgs...)
+	if workingDir != "" {
+		cmd.Dir = workingDir
+	}
+	cmd.Env = append(env, sandboxEnv...)
+	cmd.SysProcAttr = newProcessGroupAttr()
+	cmd.Stdout = file
+	cmd.Stderr = file
+
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		file.Close()
+		os.Remove(taskPath)
+		return nil, fmt.Errorf("create stdin pipe: %w", err)
+	}
+
+	if err := cmd.Start(); err != nil {
+		stdinPipe.Close()
+		file.Close()
+		os.Remove(taskPath)
+		return nil, fmt.Errorf("start command: %w", err)
+	}
+	file.Close()
+
+	task.stdinPipe = stdinPipe
+	task.Process = cmd
+	m.mu.Lock()
+	m.tasks[taskID] = task
+	m.mu.Unlock()
+
+	go m.waitForTask(task)
+
+	return task, nil
+}
+
 func (m *BackgroundTaskManager) waitForTask(task *BackgroundTask) {
 	defer close(task.done)
 
