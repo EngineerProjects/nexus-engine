@@ -138,26 +138,44 @@ func TestIntegratorAutoModeClassifierDenies(t *testing.T) {
 // parse, an incorrect "blocking for safety" deny) for a plain stat() call
 // that's strictly less sensitive than read_file, which was already exempt.
 func TestIntegratorAlwaysSafeToolSkipsClassifierEvenWhenClassifierDenies(t *testing.T) {
-	t.Setenv("SESHAT_RUNTIME_ROOT", t.TempDir())
-	engine := NewEngine()
-	engine.SetClassifier(&e2eClassifier{allowed: false, reason: "classifier would deny everything"})
+	// Every tool added to isAlwaysSafeTool's 2026-08-01 audit pass, in
+	// addition to get_file_metadata itself - each verified individually to
+	// be IsReadOnly:true/RequiresPermission:false/IsDestructive:false with a
+	// trivial Passthrough/AllowWithInput CheckPermissions before being added,
+	// same standard get_file_metadata was held to.
+	tools := []string{
+		"get_file_metadata", "notebook_read",
+		"devto_feed", "devto_article", "hn_stories", "hn_item", "hn_search",
+		"reddit_search", "reddit_posts", "twitter_search",
+		"get_config", "get_goal", "rag_search", "repo_map", "workflow_draft",
+		"seshat_list_skills", "seshat_read_skill", "seshat_validate_skill",
+		"list_agents", "wait_agent",
+	}
 
-	integrator := NewIntegrator(engine)
-	resolver := integrator.ResolverWithContext("s1", "t1", nil, nil)
+	for _, toolName := range tools {
+		t.Run(toolName, func(t *testing.T) {
+			t.Setenv("SESHAT_RUNTIME_ROOT", t.TempDir())
+			engine := NewEngine()
+			engine.SetClassifier(&e2eClassifier{allowed: false, reason: "classifier would deny everything"})
 
-	result := resolver.ResolvePermission(context.Background(), types.GlobalToolPermissionRequest(
-		"get_file_metadata",
-		map[string]any{"path": "/tmp/some-file.txt"},
-		"tu-safe-1",
-		"s1",
-		"t1",
-		types.PermissionModeAuto,
-		"",
-		nil,
-	))
+			integrator := NewIntegrator(engine)
+			resolver := integrator.ResolverWithContext("s1", "t1", nil, nil)
 
-	if !result.IsAllowed() {
-		t.Fatalf("expected get_file_metadata to be allowed as an always-safe tool without consulting the classifier, got %+v (reason: %v)", result.Behavior, result.DecisionReason)
+			result := resolver.ResolvePermission(context.Background(), types.GlobalToolPermissionRequest(
+				toolName,
+				map[string]any{},
+				"tu-safe-"+toolName,
+				"s1",
+				"t1",
+				types.PermissionModeAuto,
+				"",
+				nil,
+			))
+
+			if !result.IsAllowed() {
+				t.Fatalf("expected %q to be allowed as an always-safe tool without consulting the classifier, got %+v (reason: %v)", toolName, result.Behavior, result.DecisionReason)
+			}
+		})
 	}
 }
 
