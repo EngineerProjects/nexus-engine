@@ -3,6 +3,7 @@ package officetext
 import (
 	"archive/zip"
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -78,16 +79,16 @@ func TestExtractXLSX_InvalidFile(t *testing.T) {
 }
 
 func TestExtractPPTX_InvalidFile(t *testing.T) {
-	if _, err := ExtractPPTX([]byte("not a zip at all")); err == nil {
+	if _, _, err := ExtractPPTX([]byte("not a zip at all")); err == nil {
 		t.Fatal("expected an error for non-zip input, got nil")
 	}
 }
 
 func TestExtract_Dispatch(t *testing.T) {
-	if _, ok, _ := Extract("notes.txt", []byte("hi")); ok {
+	if _, ok, _, _ := Extract("notes.txt", []byte("hi")); ok {
 		t.Fatal("expected ok=false for an unsupported extension")
 	}
-	if _, ok, _ := Extract("report.DOCX", readTestdata(t, "sample.docx")); !ok {
+	if _, ok, _, _ := Extract("report.DOCX", readTestdata(t, "sample.docx")); !ok {
 		t.Fatal("expected ok=true for .DOCX (case-insensitive)")
 	}
 }
@@ -186,9 +187,12 @@ func buildTestPPTX(t *testing.T) []byte {
 }
 
 func TestExtractPPTX_SlideOrderAndContent(t *testing.T) {
-	md, err := ExtractPPTX(buildTestPPTX(t))
+	md, slideCount, err := ExtractPPTX(buildTestPPTX(t))
 	if err != nil {
 		t.Fatalf("ExtractPPTX: %v", err)
+	}
+	if slideCount != 2 {
+		t.Errorf("expected slideCount=2, got %d", slideCount)
 	}
 
 	welcomeIdx := strings.Index(md, "Welcome Slide")
@@ -232,7 +236,106 @@ func TestExtractPPTX_EmptyDeckIsErrEmpty(t *testing.T) {
 	}
 	_ = zw.Close()
 
-	if _, err := ExtractPPTX(buf.Bytes()); err == nil {
+	if _, _, err := ExtractPPTX(buf.Bytes()); err == nil {
 		t.Fatal("expected an error for a deck with no slides")
 	}
+}
+
+func TestExtract_PPTXNotSparseWhenTextHeavy(t *testing.T) {
+	_, ok, sparse, err := Extract("deck.pptx", buildTestPPTX(t))
+	if err != nil || !ok {
+		t.Fatalf("Extract: ok=%v err=%v", ok, err)
+	}
+	if sparse {
+		t.Error("expected sparse=false for a deck with real text on every slide")
+	}
+}
+
+func TestExtract_PPTXSparseWhenMostlyImageSlides(t *testing.T) {
+	_, ok, sparse, err := Extract("deck.pptx", buildSparseTestPPTX(t, 6))
+	if err != nil || !ok {
+		t.Fatalf("Extract: ok=%v err=%v", ok, err)
+	}
+	if !sparse {
+		t.Error("expected sparse=true for a deck where only the first of 6 slides has any text")
+	}
+}
+
+// buildSparseTestPPTX builds an n-slide deck where only the first slide has
+// a short title and the rest are pure image slides (a p:pic shape, no text
+// shape at all) - the shape of a real-world slide deck that's mostly
+// screenshots/diagrams, which is exactly the case native extraction alone
+// can't do anything useful with (see MinCharsPerSlide).
+func buildSparseTestPPTX(t *testing.T, n int) []byte {
+	t.Helper()
+
+	contentTypes := `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/ppt/presentation.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml"/>`
+	sldIDLst := "<p:sldIdLst>"
+	rels := `<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">`
+	files := map[string]string{
+		"_rels/.rels": `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="ppt/presentation.xml"/>
+</Relationships>`,
+	}
+	for i := 1; i <= n; i++ {
+		contentTypes += fmt.Sprintf(`
+<Override PartName="/ppt/slides/slide%d.xml" ContentType="application/vnd.openxmlformats-officedocument.presentationml.slide+xml"/>`, i)
+		sldIDLst += fmt.Sprintf(`<p:sldId id="%d" r:id="rIdSlide%d"/>`, 255+i, i)
+		rels += fmt.Sprintf(`
+<Relationship Id="rIdSlide%d" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide%d.xml"/>`, i, i)
+
+		if i == 1 {
+			files[fmt.Sprintf("ppt/slides/slide%d.xml", i)] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:cSld><p:spTree>
+<p:sp>
+<p:nvSpPr><p:nvPr><p:ph type="ctrTitle"/></p:nvPr></p:nvSpPr>
+<p:txBody><a:p><a:r><a:t>Q3</a:t></a:r></a:p></p:txBody>
+</p:sp>
+</p:spTree></p:cSld>
+</p:sld>`
+			continue
+		}
+		// A pure image slide: a picture shape, no text shape at all -
+		// renderSlide finds nothing to render, exactly like a real
+		// screenshot/diagram-only slide.
+		files[fmt.Sprintf("ppt/slides/slide%d.xml", i)] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:sld xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main">
+<p:cSld><p:spTree>
+<p:pic><p:nvPicPr/></p:pic>
+</p:spTree></p:cSld>
+</p:sld>`
+	}
+	contentTypes += "\n</Types>"
+	sldIDLst += "</p:sldIdLst>"
+	rels += "\n</Relationships>"
+
+	files["[Content_Types].xml"] = contentTypes
+	files["ppt/presentation.xml"] = fmt.Sprintf(`<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<p:presentation xmlns:p="http://schemas.openxmlformats.org/presentationml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+%s
+</p:presentation>`, sldIDLst)
+	files["ppt/_rels/presentation.xml.rels"] = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+` + rels
+
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, content := range files {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatalf("zip create %s: %v", name, err)
+		}
+		if _, err := w.Write([]byte(content)); err != nil {
+			t.Fatalf("zip write %s: %v", name, err)
+		}
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatalf("zip close: %v", err)
+	}
+	return buf.Bytes()
 }

@@ -16,18 +16,24 @@ import (
 // resolved through the rels part), not filename sort - a deck whose slides
 // were reordered after slideN.xml files were first created would otherwise
 // come out in the wrong order.
-func ExtractPPTX(data []byte) (string, error) {
+//
+// slideCount is the deck's total slide count (including slides that render
+// to nothing, e.g. a slide that's entirely an image with no text shapes) -
+// the caller (officetext.Extract) uses it to flag decks whose extracted
+// text is sparse relative to how many slides actually exist, not just
+// whether it's literally empty.
+func ExtractPPTX(data []byte) (markdown string, slideCount int, err error) {
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
-		return "", fmt.Errorf("not a valid PPTX (zip open failed): %w", err)
+		return "", 0, fmt.Errorf("not a valid PPTX (zip open failed): %w", err)
 	}
 
 	slidePaths, err := orderedSlidePaths(zr)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if len(slidePaths) == 0 {
-		return "", fmt.Errorf("not a valid PPTX: no slides found")
+		return "", 0, fmt.Errorf("not a valid PPTX: no slides found")
 	}
 
 	var sb strings.Builder
@@ -54,7 +60,7 @@ func ExtractPPTX(data []byte) (string, error) {
 		sb.WriteString(slideMD)
 	}
 
-	return strings.TrimSpace(sb.String()), nil
+	return strings.TrimSpace(sb.String()), len(slidePaths), nil
 }
 
 // orderedSlidePaths resolves ppt/presentation.xml's <p:sldId> list (in

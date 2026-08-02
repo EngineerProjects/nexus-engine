@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+- `internal/officetext`: `Extract`'s `.pptx` path only reported whether *any* text was found (`ok`), not whether it was plausible for the deck's size — a slide deck that's mostly screenshots/diagrams with only a title or two of real text would "succeed" and short-circuit before ever reaching docling-serve for OCR, silently dropping almost all of the deck's actual content. `Extract` now also returns `sparse` (true when extracted text is below `MinCharsPerSlide` per slide, mirroring `pdftext.Result.Sparse`'s existing per-page heuristic for scanned PDFs), and `read_file`'s docling fallback path treats a sparse PPTX the same as an empty one: automatic escalation to docling, no agent judgment call required. `Extract`'s signature changed (`(markdown, ok, err)` → `(markdown, ok, sparse, err)`) — a breaking change for the handful of internal and external (seshat-ai) callers, all updated in this PR/release.
+
+### Changed
+- `docling_convert`'s tool description now explicitly tells the agent to convert a whole PPTX/document in a single call rather than improvising a per-slide/per-image workaround (terminal commands, ad-hoc scripts, individually OCR'ing extracted slide images) — observed in a real session, this produced many small tool calls instead of the one call docling-serve is designed to handle in a single pass, with worse layout/reading-order/table-structure results than letting docling process the whole document at once.
+
 ## [1.2.3] — 2026-08-01
 
 ### Fixed
