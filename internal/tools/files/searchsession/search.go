@@ -271,7 +271,11 @@ func searchOfficeFiles(searchPath, pattern, globPattern string, caseInsensitive 
 		if readErr != nil {
 			return nil
 		}
-		text, ok, extractErr := officetext.Extract(path, data)
+		// sparse (a PPTX with implausibly little text - see
+		// officetext.MinCharsPerSlide) is irrelevant to a literal grep: it's
+		// fine to search over whatever text natively extracted, without
+		// forcing an OCR round-trip just to search a couple of slides.
+		text, ok, _, extractErr := officetext.Extract(path, data)
 		if !ok || extractErr != nil {
 			return nil
 		}
