@@ -33,14 +33,34 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/ledongthuc/pdf"
 	"github.com/pdfcpu/pdfcpu/pkg/api"
+	pdfcpumodel "github.com/pdfcpu/pdfcpu/pkg/pdfcpu/model"
 
 	"github.com/KPO-Tech/seshat/internal/docling"
 	"github.com/KPO-Tech/seshat/internal/pdftext"
 	"github.com/KPO-Tech/seshat/internal/textquality"
 )
+
+// pdfcpuConfigWarmup works around a real data race inside pdfcpu itself:
+// model.NewDefaultConfiguration() (called internally by api.ExtractImagesRaw
+// and api.Trim whenever conf is nil, as it is everywhere in this file)
+// lazily populates an unsynchronized package-level cache
+// (model.loadedDefaultConfig) on first use - concurrent first calls from
+// multiple goroutines race on that write. Once initialized, later calls
+// only read the cached value, which is safe to do concurrently. Calling
+// NewDefaultConfiguration once, non-concurrently, before any pdfcpu call
+// this package makes establishes that happens-before via sync.Once,
+// making every subsequent call - however concurrent - safe.
+var pdfcpuConfigWarmup sync.Once
+
+func warmUpPDFCPUConfig() {
+	pdfcpuConfigWarmup.Do(func() {
+		_ = pdfcpumodel.NewDefaultConfiguration()
+	})
+}
 
 // PageSource identifies how a page's text was obtained.
 type PageSource string
@@ -90,6 +110,8 @@ func (r Result) DoclingPageCount() int {
 // Callers should fall back to sending the whole document through docling
 // when ok is false, the same as if this package didn't exist.
 func Convert(ctx context.Context, data []byte, doclingClient *docling.Client) (Result, bool, error) {
+	warmUpPDFCPUConfig()
+
 	reader, err := pdf.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
 		return Result{}, false, fmt.Errorf("pdfsmart: parse pdf: %w", err)
