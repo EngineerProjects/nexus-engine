@@ -62,7 +62,7 @@ func TestTool_Call_CreatesNewDocxWithHeadingsAndParagraphs(t *testing.T) {
 	// Round-trip through the real native reader, same discipline as the
 	// excel_edit tests: prove write+read agree, not just that our own zip
 	// construction "looks right".
-	markdown, ok, err := officetext.Extract("report.docx", data)
+	markdown, ok, _, err := officetext.Extract("report.docx", data)
 	if err != nil || !ok {
 		t.Fatalf("failed to read back the written docx: ok=%v err=%v", ok, err)
 	}
@@ -107,7 +107,7 @@ func TestTool_Call_EditsExistingDocxAfterRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	markdown, ok, err := officetext.Extract("report.docx", data)
+	markdown, ok, _, err := officetext.Extract("report.docx", data)
 	if err != nil || !ok {
 		t.Fatalf("read back: ok=%v err=%v", ok, err)
 	}

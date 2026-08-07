@@ -666,7 +666,7 @@ func (t *Tool) readDoclingFile(
 		if readErr != nil {
 			return tool.NewErrorResult(fmt.Errorf("failed to read %s: %w", strings.ToUpper(format), readErr)), nil
 		}
-		if markdown, ok, extractErr := officetext.Extract(filePath, data); ok && extractErr == nil {
+		if markdown, ok, sparse, extractErr := officetext.Extract(filePath, data); ok && extractErr == nil && !sparse {
 			RecordExternalRead(filePath, fileInfo.ModTime(), markdown, true)
 			result := &FileReadResult{
 				Type: FileTypeDocling,
@@ -679,10 +679,12 @@ func (t *Tool) readDoclingFile(
 			}
 			return tool.NewTextResult(t.formatDoclingResult(result)), nil
 		}
-		// Fell through: parse failure or no extractable text (e.g. a slide
-		// deck that's all images). Try docling next since it may still get
-		// something out of it (OCR on embedded images, etc.); if docling
-		// isn't available either, the message below reports both attempts.
+		// Fell through: parse failure, no extractable text, or a sparse
+		// result (e.g. a slide deck that's mostly screenshots/diagrams with
+		// only a title or two of real text - see officetext.MinCharsPerSlide).
+		// Try docling next since it may still get something out of it (OCR
+		// on embedded images, etc.); if docling isn't available either, the
+		// message below reports both attempts.
 	}
 
 	if t.doclingClient == nil || !t.doclingClient.IsAvailable(ctx) {

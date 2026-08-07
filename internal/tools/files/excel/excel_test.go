@@ -87,7 +87,7 @@ func TestTool_Call_CreatesNewXLSXWithHeaderAndFormula(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read written file: %v", err)
 	}
-	markdown, ok, err := officetext.Extract("sample.xlsx", data)
+	markdown, ok, _, err := officetext.Extract("sample.xlsx", data)
 	if err != nil || !ok {
 		t.Fatalf("failed to read back the written xlsx: ok=%v err=%v", ok, err)
 	}
@@ -173,7 +173,7 @@ func TestTool_Call_EditsExistingFileAfterRead(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	markdown, ok, err := officetext.Extract("existing.xlsx", data)
+	markdown, ok, _, err := officetext.Extract("existing.xlsx", data)
 	if err != nil || !ok {
 		t.Fatalf("read back: ok=%v err=%v", ok, err)
 	}

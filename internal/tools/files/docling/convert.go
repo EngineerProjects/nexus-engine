@@ -30,14 +30,15 @@ const (
 	ConvertDescription = "Convert a local file to markdown using docling-serve: OCR, layout analysis, table structure, and audio transcription.\n\n" +
 		"## When to use\n\n" +
 		"- A scanned/image-only PDF that FileRead reports as having little or no extractable text\n" +
-		"- A complex slide deck (PPTX) with diagrams, charts, or embedded images that need OCR\n" +
+		"- A PPTX slide deck — most slide decks are mostly visual (screenshots, diagrams, charts) with only a title or two of real text, so FileRead's native extraction routinely \"succeeds\" while missing almost everything that actually matters. FileRead already auto-falls-back to docling for a PPTX whose extracted text is sparse relative to its slide count, but if you're unsure or FileRead returned something that looks thin, don't hesitate to call this directly rather than trying to work around it with other tools (terminal, ad-hoc scripts, per-slide image extraction, etc.) — none of that gets better OCR than docling does in one shot\n" +
 		"- Audio files (WAV, MP3) that need transcription\n" +
 		"- A DOCX/PPTX/XLSX that FileRead's native extraction failed on\n\n" +
 		"## When NOT to use\n\n" +
-		"- Plain text-native PDFs, or simple DOCX/PPTX/XLSX — use FileRead instead, it extracts them natively without the network round-trip to docling-serve\n" +
-		"- FileRead already tries docling automatically as a last resort for unreadable files, so you usually don't need this tool for a first read. Reach for it when you want deliberate control: forcing a reconversion, or converting a file FileRead didn't route to docling.\n\n" +
+		"- Plain text-native PDFs, or text-heavy DOCX/XLSX — use FileRead instead, it extracts them natively without the network round-trip to docling-serve\n" +
+		"- FileRead already tries docling automatically as a last resort for unreadable or sparse files, so you usually don't need this tool for a first read. Reach for it when you want deliberate control: forcing a reconversion, or converting a file FileRead didn't route to docling.\n\n" +
 		"## Rules\n\n" +
-		"- Requires docling-serve to be configured (DOCLING_URL).\n"
+		"- Requires docling-serve to be configured (DOCLING_URL).\n" +
+		"- Pass the whole file in one call (`path` is the deck/document itself, e.g. \"deck.pptx\") — docling-serve converts every slide/page in a single request. Never split a deck into individual slide images and OCR them one at a time: it's slower, it's more tool calls, and it throws away the layout/reading-order/table-structure analysis docling does for a whole document at once.\n"
 )
 
 // ConvertTool converts a local file to markdown via docling-serve.
