@@ -14,6 +14,14 @@ import (
 	"time"
 )
 
+// defaultTimeout covers a typical single-digit-page document comfortably.
+// It's too short for large or scan-heavy documents on a CPU-only
+// docling-serve: layout detection runs on every page's rasterized image
+// regardless of native text (see the standard PDF pipeline), so a
+// several-hundred-page PDF can take well past two minutes with no GPU.
+// Callers that route documents through unconditionally - e.g. RAG
+// ingestion, which never skips docling the way an ephemeral read does -
+// should pass WithTimeout with a budget sized for their real documents.
 const defaultTimeout = 120 * time.Second
 
 // Client calls a running docling-serve instance to convert documents to markdown.
@@ -22,15 +30,34 @@ type Client struct {
 	httpClient *http.Client
 }
 
+// Option configures a Client at construction time.
+type Option func(*Client)
+
+// WithTimeout overrides the default 120s per-request HTTP timeout. Pass a
+// larger budget for deployments that expect large or scan-heavy documents
+// (see defaultTimeout's doc comment for why the default is often too
+// short), or a smaller one for latency-sensitive callers that would rather
+// fail fast than wait.
+func WithTimeout(d time.Duration) Option {
+	return func(c *Client) {
+		c.httpClient.Timeout = d
+	}
+}
+
 // NewClient creates a client pointing at a docling-serve base URL.
-// baseURL is typically "http://localhost:5001".
-func NewClient(baseURL string) *Client {
-	return &Client{
+// baseURL is typically "http://localhost:5001". Defaults to a 120s
+// per-request timeout - pass WithTimeout to override it.
+func NewClient(baseURL string, opts ...Option) *Client {
+	c := &Client{
 		baseURL: strings.TrimRight(baseURL, "/"),
 		httpClient: &http.Client{
 			Timeout: defaultTimeout,
 		},
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 // ConversionResult is what we get back from docling-serve for a single file.
