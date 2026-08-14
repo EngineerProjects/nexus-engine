@@ -231,6 +231,68 @@ func TestServiceIngestAndSearch_ScopeIDIsolation(t *testing.T) {
 	}
 }
 
+// TestServiceIngestAndSearch_MultiIdentityACL is ScopeIDIsolation's sibling
+// for ScopeIDs (plural): a single connector-synced document visible to
+// several identities at once (e.g. a Google Drive file shared with a
+// specific user and a group) must be found by a caller entitled to either
+// identity, and not by a caller entitled to neither. See
+// seshat-ai/helps/roadmap.md Phase 1's Google Drive connector.
+func TestServiceIngestAndSearch_MultiIdentityACL(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+
+	_, err := svc.Ingest(ctx, IngestRequest{
+		CorpusID: "drive",
+		FileID:   "shared-doc",
+		Filename: "shared.txt",
+		Text:     "alpha content shared with alice and the eng group",
+		ScopeIDs: []string{"user:alice", "group:eng"},
+	})
+	if err != nil {
+		t.Fatalf("Ingest shared-doc: %v", err)
+	}
+	_, err = svc.Ingest(ctx, IngestRequest{
+		CorpusID: "drive",
+		FileID:   "private-doc",
+		Filename: "private.txt",
+		Text:     "alpha content private to bob",
+		ScopeIDs: []string{"user:bob"},
+	})
+	if err != nil {
+		t.Fatalf("Ingest private-doc: %v", err)
+	}
+
+	// Alice isn't named directly on shared-doc's ACL - only via her own user
+	// ID would she match, but here she's entitled through group:eng instead.
+	resp, err := svc.Search(ctx, SearchRequest{
+		CorpusID: "drive",
+		Query:    "alpha",
+		TopK:     10,
+		Filter:   map[string]any{"scope_id": map[string]any{"$in": []string{"group:eng"}}},
+	})
+	if err != nil {
+		t.Fatalf("Search as group:eng: %v", err)
+	}
+	if len(resp.Results) != 1 || resp.Results[0].Metadata["filename"] != "shared.txt" {
+		t.Fatalf("expected only shared-doc for group:eng, got %+v", resp.Results)
+	}
+
+	// Someone in neither alice's user id, the eng group, nor bob's user id
+	// sees nothing.
+	resp, err = svc.Search(ctx, SearchRequest{
+		CorpusID: "drive",
+		Query:    "alpha",
+		TopK:     10,
+		Filter:   map[string]any{"scope_id": map[string]any{"$in": []string{"user:carol"}}},
+	})
+	if err != nil {
+		t.Fatalf("Search as user:carol: %v", err)
+	}
+	if len(resp.Results) != 0 {
+		t.Fatalf("expected no results for an unrelated identity, got %+v", resp.Results)
+	}
+}
+
 func TestServiceIngestAndSearch_VectorlessWithoutEmbedder(t *testing.T) {
 	ctx := context.Background()
 	svc := newVectorlessTestService(t)
