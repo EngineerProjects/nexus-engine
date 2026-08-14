@@ -152,16 +152,20 @@ func (s *Service) Ingest(ctx context.Context, request IngestRequest) (IngestResu
 		if vectorsOut != nil {
 			vec = vectorsOut[i]
 		}
+		metadata := map[string]string{
+			"artifact_key": artifact.Key,
+			"filename":     request.Filename,
+			"position":     fmt.Sprintf("%d", chunk.Position),
+		}
+		if request.ScopeID != "" {
+			metadata["scope_id"] = request.ScopeID
+		}
 		records = append(records, vector.Record{
 			Namespace: request.CorpusID,
 			Key:       key,
 			Text:      chunk.Text,
 			Vector:    vec,
-			Metadata: map[string]string{
-				"artifact_key": artifact.Key,
-				"filename":     request.Filename,
-				"position":     fmt.Sprintf("%d", chunk.Position),
-			},
+			Metadata:  metadata,
 		})
 	}
 	if err := s.vectors.Upsert(ctx, records); err != nil {

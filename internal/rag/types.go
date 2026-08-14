@@ -25,6 +25,11 @@ type IngestRequest struct {
 	FileID   string
 	Filename string
 	Text     string
+	// ScopeID tags every chunk produced from this ingest with a permission
+	// scope (a workspace ID for shared content, or an owning user ID for
+	// personal content). Empty means unscoped — no scope_id metadata is
+	// written, and the chunk is invisible to any search that filters on it.
+	ScopeID string
 }
 
 type IngestResult struct {

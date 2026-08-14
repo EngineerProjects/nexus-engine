@@ -161,6 +161,76 @@ func TestServiceSearch_WithFilter(t *testing.T) {
 	}
 }
 
+// TestServiceIngestAndSearch_ScopeIDIsolation exercises the permission-filter
+// mechanism a single corpus needs once it can aggregate content from more
+// than one source (e.g. a future connector syncing two departments into the
+// same corpus): two files tagged with different ScopeID must stay isolated
+// from each other via SearchRequest.Filter's "$in" predicate on scope_id,
+// even though both live in the same corpus/namespace. See
+// seshat-ai/helps/roadmap.md Phase 1.
+func TestServiceIngestAndSearch_ScopeIDIsolation(t *testing.T) {
+	ctx := context.Background()
+	svc := newTestService(t)
+
+	_, err := svc.Ingest(ctx, IngestRequest{
+		CorpusID: "shared",
+		FileID:   "dept-a-doc",
+		Filename: "dept-a.txt",
+		Text:     "alpha content from department A",
+		ScopeID:  "dept-a",
+	})
+	if err != nil {
+		t.Fatalf("Ingest dept-a: %v", err)
+	}
+	_, err = svc.Ingest(ctx, IngestRequest{
+		CorpusID: "shared",
+		FileID:   "dept-b-doc",
+		Filename: "dept-b.txt",
+		Text:     "alpha content from department B",
+		ScopeID:  "dept-b",
+	})
+	if err != nil {
+		t.Fatalf("Ingest dept-b: %v", err)
+	}
+
+	// A principal only entitled to dept-a's scope must never see dept-b's chunks.
+	resp, err := svc.Search(ctx, SearchRequest{
+		CorpusID: "shared",
+		Query:    "alpha",
+		TopK:     10,
+		Filter:   map[string]any{"scope_id": map[string]any{"$in": []string{"dept-a"}}},
+	})
+	if err != nil {
+		t.Fatalf("Search scoped to dept-a: %v", err)
+	}
+	if len(resp.Results) == 0 {
+		t.Fatal("expected at least one dept-a result")
+	}
+	for _, r := range resp.Results {
+		if r.Metadata["scope_id"] != "dept-a" {
+			t.Errorf("scope filter leaked result with scope_id=%s", r.Metadata["scope_id"])
+		}
+	}
+
+	// A principal entitled to both scopes sees both.
+	resp, err = svc.Search(ctx, SearchRequest{
+		CorpusID: "shared",
+		Query:    "alpha",
+		TopK:     10,
+		Filter:   map[string]any{"scope_id": map[string]any{"$in": []string{"dept-a", "dept-b"}}},
+	})
+	if err != nil {
+		t.Fatalf("Search scoped to both: %v", err)
+	}
+	seen := map[string]bool{}
+	for _, r := range resp.Results {
+		seen[r.Metadata["scope_id"]] = true
+	}
+	if !seen["dept-a"] || !seen["dept-b"] {
+		t.Fatalf("expected results from both scopes, got %v", resp.Results)
+	}
+}
+
 func TestServiceIngestAndSearch_VectorlessWithoutEmbedder(t *testing.T) {
 	ctx := context.Background()
 	svc := newVectorlessTestService(t)
