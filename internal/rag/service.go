@@ -2,6 +2,7 @@ package rag
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -157,7 +158,13 @@ func (s *Service) Ingest(ctx context.Context, request IngestRequest) (IngestResu
 			"filename":     request.Filename,
 			"position":     fmt.Sprintf("%d", chunk.Position),
 		}
-		if request.ScopeID != "" {
+		if len(request.ScopeIDs) > 0 {
+			// Encoded as a JSON array string - matchesFilter/pgFilterClause
+			// both detect and unpack this representation transparently.
+			if encoded, err := json.Marshal(request.ScopeIDs); err == nil {
+				metadata["scope_id"] = string(encoded)
+			}
+		} else if request.ScopeID != "" {
 			metadata["scope_id"] = request.ScopeID
 		}
 		records = append(records, vector.Record{

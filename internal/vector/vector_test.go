@@ -35,6 +35,61 @@ func TestMemoryStoreSearchRanksByCosineSimilarity(t *testing.T) {
 	}
 }
 
+// TestMemoryStore_MultiValuedMetadataFilter exercises the multi-identity ACL
+// filter path (rag.IngestRequest.ScopeIDs writes a JSON-array scope_id;
+// matchesFilter must intersect it against the caller's allowed values) on
+// the same client-side matcher SQLite and HNSW also use, alongside the
+// existing scalar case to prove both representations coexist correctly.
+func TestMemoryStore_MultiValuedMetadataFilter(t *testing.T) {
+	store := NewMemoryStore()
+	ctx := context.Background()
+	if err := store.Upsert(ctx, []Record{
+		{Namespace: "ns", Key: "multi", Text: "shared doc", Vector: []float32{1, 0},
+			Metadata: map[string]string{"scope_id": `["user:alice","group:eng"]`}},
+		{Namespace: "ns", Key: "single", Text: "personal doc", Vector: []float32{1, 0},
+			Metadata: map[string]string{"scope_id": "user:bob"}},
+	}); err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	// Alice isn't named directly on "single" and isn't user:bob - only the
+	// multi-valued record's ACL list should match her.
+	results, err := store.Search(ctx, Query{
+		Namespace: "ns", Vector: []float32{1, 0}, TopK: 10,
+		Filter: map[string]any{"scope_id": map[string]any{"$in": []string{"user:alice"}}},
+	})
+	if err != nil {
+		t.Fatalf("Search (alice): %v", err)
+	}
+	if len(results) != 1 || results[0].Record.Key != "multi" {
+		t.Fatalf("expected only %q for user:alice, got %+v", "multi", results)
+	}
+
+	// Bob matches the scalar record, unaffected by the multi-valued one.
+	results, err = store.Search(ctx, Query{
+		Namespace: "ns", Vector: []float32{1, 0}, TopK: 10,
+		Filter: map[string]any{"scope_id": map[string]any{"$in": []string{"user:bob"}}},
+	})
+	if err != nil {
+		t.Fatalf("Search (bob): %v", err)
+	}
+	if len(results) != 1 || results[0].Record.Key != "single" {
+		t.Fatalf("expected only %q for user:bob, got %+v", "single", results)
+	}
+
+	// A caller entitled to both scopes sees both.
+	results, err = store.Search(ctx, Query{
+		Namespace: "ns", Vector: []float32{1, 0}, TopK: 10,
+		Filter: map[string]any{"scope_id": map[string]any{"$in": []string{"user:alice", "user:bob"}}},
+	})
+	if err != nil {
+		t.Fatalf("Search (both): %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %+v", results)
+	}
+}
+
 func openPgVectorTestDB(t *testing.T) *dbpkg.DB {
 	t.Helper()
 	dsn := os.Getenv("SESHAT_TEST_POSTGRES_DSN")
@@ -138,6 +193,76 @@ func TestPgVectorStore_UpsertSearchDeleteNamespace(t *testing.T) {
 	}
 	if exists {
 		t.Fatal("expected namespace to be deleted")
+	}
+}
+
+// TestPgVectorStore_MultiValuedMetadataFilter is the pgvector-backend
+// counterpart of TestMemoryStore_MultiValuedMetadataFilter - proves
+// marshalMetadataJSON embeds a multi-identity ACL as a native JSONB array
+// (not an escaped string) and pgFilterClause's "$in" correctly matches
+// against it via the jsonb "?" containment operator, alongside a plain
+// scalar scope_id row handled the ordinary way.
+func TestPgVectorStore_MultiValuedMetadataFilter(t *testing.T) {
+	database := openPgVectorTestDB(t)
+	ctx := context.Background()
+
+	store, err := NewPgVectorStore(ctx, database, PgVectorOptions{
+		Dim:             1536,
+		CreateExtension: true,
+		IndexMethod:     "hnsw",
+	})
+	if err != nil {
+		t.Fatalf("NewPgVectorStore: %v", err)
+	}
+
+	namespace := "itest_pgvector_multi_acl"
+	_ = store.DeleteNamespace(ctx, namespace)
+	t.Cleanup(func() { _ = store.DeleteNamespace(ctx, namespace) })
+
+	err = store.Upsert(ctx, []Record{
+		{
+			Namespace: namespace,
+			Key:       "multi",
+			Text:      "shared doc",
+			Vector:    sparseVector1536(0),
+			Metadata:  map[string]string{"scope_id": `["user:alice","group:eng"]`},
+		},
+		{
+			Namespace: namespace,
+			Key:       "single",
+			Text:      "personal doc",
+			Vector:    sparseVector1536(0),
+			Metadata:  map[string]string{"scope_id": "user:bob"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Upsert: %v", err)
+	}
+
+	results, err := store.Search(ctx, Query{
+		Namespace: namespace,
+		Vector:    sparseVector1536(0),
+		TopK:      10,
+		Filter:    map[string]any{"scope_id": map[string]any{"$in": []string{"user:alice"}}},
+	})
+	if err != nil {
+		t.Fatalf("Search (alice): %v", err)
+	}
+	if len(results) != 1 || results[0].Record.Key != "multi" {
+		t.Fatalf("expected only %q for user:alice, got %+v", "multi", results)
+	}
+
+	results, err = store.Search(ctx, Query{
+		Namespace: namespace,
+		Vector:    sparseVector1536(0),
+		TopK:      10,
+		Filter:    map[string]any{"scope_id": map[string]any{"$in": []string{"user:bob"}}},
+	})
+	if err != nil {
+		t.Fatalf("Search (bob): %v", err)
+	}
+	if len(results) != 1 || results[0].Record.Key != "single" {
+		t.Fatalf("expected only %q for user:bob, got %+v", "single", results)
 	}
 }
 

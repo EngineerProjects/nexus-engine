@@ -29,7 +29,17 @@ type IngestRequest struct {
 	// scope (a workspace ID for shared content, or an owning user ID for
 	// personal content). Empty means unscoped — no scope_id metadata is
 	// written, and the chunk is invisible to any search that filters on it.
+	// Mutually exclusive with ScopeIDs - set at most one of the two.
 	ScopeID string
+	// ScopeIDs tags every chunk with multiple permission scopes at once
+	// (e.g. a connector-synced document visible to several identities:
+	// specific users, groups, a domain). Takes precedence over ScopeID when
+	// both would apply from a caller's perspective - callers should set
+	// only one. Encoded as a JSON array in the scope_id metadata field, so
+	// a single "$in" filter transparently matches both the scalar (ScopeID)
+	// and multi-valued (ScopeIDs) representations - see vector.matchesFilter
+	// and pgvector_store.go's pgFilterClause.
+	ScopeIDs []string
 }
 
 type IngestResult struct {

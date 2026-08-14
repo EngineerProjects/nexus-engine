@@ -111,7 +111,7 @@ func (s *PgVectorStore) Upsert(ctx context.Context, records []Record) error {
 		if len(r.Vector) == 0 {
 			return fmt.Errorf("vector values are required")
 		}
-		meta, err := json.Marshal(r.Metadata)
+		meta, err := marshalMetadataJSON(r.Metadata)
 		if err != nil {
 			return fmt.Errorf("marshal metadata for %q: %w", r.Key, err)
 		}
@@ -321,8 +321,40 @@ func formatVector(v []float32) string {
 	return "[" + strings.Join(parts, ",") + "]"
 }
 
+// marshalMetadataJSON serializes r.Metadata to the JSONB column. A value
+// that's a JSON-encoded string array (multi-identity ACLs - see
+// rag.IngestRequest.ScopeIDs and decodeMetaArray) is embedded as a native
+// JSON array rather than an escaped string, so pgFilterClause's
+// metadata->'field' ? $n operator can query it directly - plain
+// json.Marshal(map[string]string) can't produce that, since Go always
+// encodes a string-typed value as a JSON string regardless of its content.
+func marshalMetadataJSON(m map[string]string) ([]byte, error) {
+	raw := make(map[string]json.RawMessage, len(m))
+	for k, v := range m {
+		if _, ok := decodeMetaArray(v); ok {
+			raw[k] = json.RawMessage(v)
+			continue
+		}
+		encoded, err := json.Marshal(v)
+		if err != nil {
+			return nil, fmt.Errorf("marshal metadata value for %q: %w", k, err)
+		}
+		raw[k] = encoded
+	}
+	return json.Marshal(raw)
+}
+
 // pgFilterClause appends JSONB predicate fragments to the WHERE clause.
 // args is extended in-place; the next placeholder index is len(*args)+1.
+//
+// A metadata field's JSONB value is either a plain string (the common case)
+// or a native JSON array (multi-identity ACLs - see rag.IngestRequest.ScopeIDs
+// and Upsert's encoding of it). "$in" matches a record whose field is either
+// a scalar equal to one of the candidate values, or an array containing any
+// of them - metadata->>'field' handles the scalar case (returns NULL, so
+// never matches, when the value is actually an array), and
+// metadata->'field' ? $n (jsonb "does this array contain this element")
+// handles the array case.
 func pgFilterClause(filter map[string]any, args *[]any) string {
 	if len(filter) == 0 {
 		return ""
@@ -349,14 +381,14 @@ func pgFilterClause(filter map[string]any, args *[]any) string {
 					}
 				}
 				if len(vals) > 0 {
-					ph := make([]string, len(vals))
+					clauses := make([]string, len(vals))
 					for i, val := range vals {
 						idx++
 						*args = append(*args, val)
-						ph[i] = fmt.Sprintf("$%d", idx)
+						clauses[i] = fmt.Sprintf(`(metadata->>'%s' = $%d OR metadata->'%s' ? $%d)`,
+							pgEscape(k), idx, pgEscape(k), idx)
 					}
-					sb.WriteString(fmt.Sprintf(` AND metadata->>'%s' IN (%s)`,
-						pgEscape(k), strings.Join(ph, ",")))
+					sb.WriteString(" AND (" + strings.Join(clauses, " OR ") + ")")
 				}
 			}
 		}
