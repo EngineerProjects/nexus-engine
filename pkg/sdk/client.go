@@ -20,8 +20,10 @@ import (
 	"github.com/KPO-Tech/seshat/internal/providers"
 	compact "github.com/KPO-Tech/seshat/internal/runtime/memory"
 	coretasks "github.com/KPO-Tech/seshat/internal/runtime/tasks"
+	"github.com/KPO-Tech/seshat/internal/sandbox"
 	"github.com/KPO-Tech/seshat/internal/storage"
 	agentTool "github.com/KPO-Tech/seshat/internal/tools/agents"
+	bashTool "github.com/KPO-Tech/seshat/internal/tools/bash"
 	"github.com/KPO-Tech/seshat/internal/tools/registry"
 	"github.com/KPO-Tech/seshat/internal/tools/system/mcp"
 	taskTool "github.com/KPO-Tech/seshat/internal/tools/task"
@@ -379,6 +381,26 @@ func (c *Client) RegisterTools(tools []Tool) error {
 		}
 	}
 	return nil
+}
+
+// SandboxKind reports which sandbox backend this client's bash tool actually
+// resolved to at construction (SandboxKindDocker only if it was requested via
+// ClientConfig.SandboxKind AND Docker passed its health check at startup;
+// SandboxKindLocal otherwise). Host applications use this instead of the
+// package-level SandboxAvailable(), which only ever checks Landlock and so
+// can't reflect a Docker sandbox this specific client is actually using.
+func (c *Client) SandboxKind() SandboxKind {
+	toolInstance, ok := c.registry.Get(bashTool.ToolName)
+	if !ok {
+		return SandboxKindLocal
+	}
+	confinable, ok := toolInstance.(interface {
+		SandboxKind() sandbox.EnvironmentKind
+	})
+	if !ok {
+		return SandboxKindLocal
+	}
+	return confinable.SandboxKind()
 }
 
 // ListSessions lists all sessions.

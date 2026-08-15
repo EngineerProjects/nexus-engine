@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/KPO-Tech/seshat/internal/providers"
+	"github.com/KPO-Tech/seshat/internal/sandbox"
 	tool "github.com/KPO-Tech/seshat/internal/tools/contract"
 	"github.com/KPO-Tech/seshat/internal/types"
 )
@@ -1021,6 +1022,48 @@ func TestClientGetSessionStoreReturnsConfiguredStore(t *testing.T) {
 
 	if got := client.GetSessionStore(); got != store {
 		t.Fatal("expected GetSessionStore to return the configured store")
+	}
+}
+
+func TestClientSandboxKindReportsLocalByDefault(t *testing.T) {
+	store, err := NewSessionStoreWithBackend(NewMemorySessionBackend())
+	if err != nil {
+		t.Fatalf("NewSessionStoreWithBackend failed: %v", err)
+	}
+	client, err := NewClient(&ClientConfig{
+		PersistSessions: false,
+		SessionStore:    store,
+	})
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	if got := client.SandboxKind(); got != SandboxKindLocal {
+		t.Fatalf("expected SandboxKind() to report SandboxKindLocal when Docker was never requested, got %v", got)
+	}
+}
+
+func TestClientSandboxKindFallsBackWhenDockerUnavailable(t *testing.T) {
+	store, err := NewSessionStoreWithBackend(NewMemorySessionBackend())
+	if err != nil {
+		t.Fatalf("NewSessionStoreWithBackend failed: %v", err)
+	}
+	dockerCfg := sandbox.DefaultDockerConfig()
+	dockerCfg.DockerBinary = "seshat-definitely-not-a-real-binary"
+	client, err := NewClient(&ClientConfig{
+		PersistSessions: false,
+		SessionStore:    store,
+		SandboxKind:     SandboxKindDocker,
+		SandboxDocker:   dockerCfg,
+	})
+	if err != nil {
+		t.Fatalf("NewClient failed: %v", err)
+	}
+	t.Cleanup(func() { _ = client.Close() })
+
+	if got := client.SandboxKind(); got != SandboxKindLocal {
+		t.Fatalf("expected SandboxKind() to fall back to SandboxKindLocal when the configured Docker backend is unhealthy, got %v", got)
 	}
 }
 
