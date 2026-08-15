@@ -876,6 +876,18 @@ func SandboxAvailable() bool {
 	return landlockAvailable()
 }
 
+// SandboxKind reports which sandbox backend this specific Tool instance
+// actually resolved to at construction — EnvironmentDocker only if Docker
+// was requested via ToolConfig.SandboxKind AND passed its health check;
+// EnvironmentLocal otherwise (Landlock on Linux, unconfined elsewhere — see
+// SandboxAvailable for that distinction, which this method doesn't make).
+func (t *Tool) SandboxKind() sandbox.EnvironmentKind {
+	if t.sandboxExecutor != nil {
+		return t.sandboxExecutor.Kind()
+	}
+	return sandbox.EnvironmentLocal
+}
+
 // DetectShell picks the best available shell, cached at startup.
 func DetectShell() string {
 	for _, sh := range []string{"bash", "sh", "zsh"} {

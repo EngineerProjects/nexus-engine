@@ -83,4 +83,41 @@ func TestNewToolFallsBackWhenDockerSandboxRequestedButUnavailable(t *testing.T) 
 	if tool.sandboxExecutor != nil {
 		t.Fatal("expected sandboxExecutor to stay nil (fallback to Landlock/local) when the configured Docker backend is unhealthy")
 	}
+	if got := tool.SandboxKind(); got != sandbox.EnvironmentLocal {
+		t.Fatalf("expected SandboxKind() to report EnvironmentLocal on Docker health-check failure, got %v", got)
+	}
+}
+
+// TestSandboxKindReportsLocalWhenDockerNotRequested proves SandboxKind()
+// doesn't default to reporting Docker just because it's the "better"
+// backend — a Tool that never requested it must report EnvironmentLocal,
+// matching what NewTool actually initialized (see NewTool's nil-executor
+// path when config.SandboxKind isn't EnvironmentDocker).
+func TestSandboxKindReportsLocalWhenDockerNotRequested(t *testing.T) {
+	tool := NewTool(DefaultToolConfig())
+	if got := tool.SandboxKind(); got != sandbox.EnvironmentLocal {
+		t.Fatalf("expected SandboxKind() to report EnvironmentLocal when Docker was never requested, got %v", got)
+	}
+}
+
+// TestSandboxKindReportsDockerWhenHealthy is the counterpart to
+// TestNewToolWithDockerSandboxRoutesExecutionThroughContainer, isolating
+// just the SandboxKind() reporting behavior (that test already asserts
+// sandboxExecutor != nil and Sandboxed == true; this asserts the new public
+// accessor agrees).
+func TestSandboxKindReportsDockerWhenHealthy(t *testing.T) {
+	requireDocker(t)
+
+	cfg := DefaultToolConfig()
+	cfg.SandboxKind = sandbox.EnvironmentDocker
+	tool := NewTool(cfg)
+	t.Cleanup(func() {
+		if closer, ok := tool.sandboxExecutor.(interface{ Close() error }); ok {
+			_ = closer.Close()
+		}
+	})
+
+	if got := tool.SandboxKind(); got != sandbox.EnvironmentDocker {
+		t.Fatalf("expected SandboxKind() to report EnvironmentDocker when Docker is healthy, got %v", got)
+	}
 }
