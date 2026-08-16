@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/KPO-Tech/seshat/internal/sandbox"
+	tool "github.com/KPO-Tech/seshat/internal/tools/registry"
 )
 
 // requireDocker skips the test when the docker CLI isn't on PATH or the
@@ -105,6 +106,37 @@ func TestSandboxKindReportsLocalWhenDockerNotRequested(t *testing.T) {
 // just the SandboxKind() reporting behavior (that test already asserts
 // sandboxExecutor != nil and Sandboxed == true; this asserts the new public
 // accessor agrees).
+// TestCallRefusesUnconfinedExecutionWhenRequireSandboxIsSet is the one test
+// this package was missing for its own central multi-tenant-safety
+// mechanism (grepping the whole package for "RequireSandbox" before this
+// test existed turned up only the field/config plumbing, never an actual
+// exercise of the enforcement branch in executeLocalCommand). Deliberately
+// carries no //go:build constraint, unlike bash_test.go's Landlock-specific
+// suite — on any host where neither Landlock nor Docker sandboxing actually
+// applies (this test suite's own CI/dev machines included, whenever they
+// aren't Linux-with-Landlock), RequireSandbox must refuse instead of
+// running the command unconfined; that's exactly the platform this test
+// exercises for real, no mocking needed.
+func TestCallRefusesUnconfinedExecutionWhenRequireSandboxIsSet(t *testing.T) {
+	if landlockAvailable() {
+		t.Skip("this host has Landlock available — RequireSandbox would apply real confinement instead of refusing, see the Linux-specific suite in bash_test.go for that path")
+	}
+
+	cfg := DefaultToolConfig()
+	cfg.RequireSandbox = true
+	tl := NewTool(cfg)
+
+	result, err := tl.Call(context.Background(), tool.CallInput{
+		Parsed: map[string]any{"command": "echo hi"},
+	}, nil)
+	if err != nil {
+		t.Fatalf("Call returned a Go error instead of a tool-result error: %v", err)
+	}
+	if result.Error == nil {
+		t.Fatal("expected RequireSandbox to refuse execution when no OS-level sandbox is available on this platform, got a successful result")
+	}
+}
+
 func TestSandboxKindReportsDockerWhenHealthy(t *testing.T) {
 	requireDocker(t)
 
