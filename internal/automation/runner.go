@@ -34,6 +34,14 @@ type RunnerConfig struct {
 	// isn't a secret or per-tenant value, so it's fine to read straight
 	// from RunnerConfig rather than resolved per execution.
 	DoclingURL string
+	// RequireSandbox makes the bash tool refuse to run unconfined instead
+	// of silently degrading — see sdk.ClientConfig.RequireSandbox /
+	// bash.ToolConfig.RequireSandbox for the underlying mechanism. Leave
+	// false for a single-user embedding; set true for multi-tenant server
+	// deployments (e.g. seshat-ai/seshat-server's cloud-targeted job
+	// execution), where an LLM-issued shell command must never run
+	// unconfined on the shared host.
+	RequireSandbox bool
 }
 
 // ExecuteConfig holds per-execution overrides applied on top of RunnerConfig.
@@ -73,22 +81,7 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, ec ExecuteConfig) erro
 		}
 	}
 
-	clientCfg := &sdk.ClientConfig{
-		APIKey:                 r.cfg.ProviderConfig.APIKey,
-		Model:                  model,
-		PermissionMode:         sdk.PermissionModeBypass,
-		MaxTokens:              r.cfg.MaxTokens,
-		AutoCompact:            false,
-		PersistSessions:        false,
-		DisableTitleGeneration: true,
-		EnableMemory:           false,
-		EnableHooks:            false,
-		EnableMonitoring:       false,
-		ProviderConfig:         r.cfg.ProviderConfig,
-		WebSearchKeys:          r.cfg.WebSearchKeys,
-		RAGService:             r.cfg.RAGService,
-		DoclingURL:             r.cfg.DoclingURL,
-	}
+	clientCfg := r.buildClientConfig(model)
 
 	if ec.StreamFn != nil {
 		streamFn := ec.StreamFn
@@ -116,6 +109,31 @@ func (r *Runner) Execute(ctx context.Context, w Workflow, ec ExecuteConfig) erro
 	}
 
 	return w.Run(ctx, session)
+}
+
+// buildClientConfig builds the sdk.ClientConfig for one execution against
+// the given (possibly per-call-overridden) model — pulled out of Execute as
+// a pure function so RunnerConfig's field-by-field propagation into
+// ClientConfig (RequireSandbox in particular) is unit-testable without a
+// real LLM call.
+func (r *Runner) buildClientConfig(model sdk.ModelIdentifier) *sdk.ClientConfig {
+	return &sdk.ClientConfig{
+		APIKey:                 r.cfg.ProviderConfig.APIKey,
+		Model:                  model,
+		PermissionMode:         sdk.PermissionModeBypass,
+		MaxTokens:              r.cfg.MaxTokens,
+		AutoCompact:            false,
+		PersistSessions:        false,
+		DisableTitleGeneration: true,
+		EnableMemory:           false,
+		EnableHooks:            false,
+		EnableMonitoring:       false,
+		ProviderConfig:         r.cfg.ProviderConfig,
+		WebSearchKeys:          r.cfg.WebSearchKeys,
+		RAGService:             r.cfg.RAGService,
+		DoclingURL:             r.cfg.DoclingURL,
+		RequireSandbox:         r.cfg.RequireSandbox,
+	}
 }
 
 // Close is a no-op — Runner holds no long-lived resources.
