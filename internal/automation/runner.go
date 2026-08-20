@@ -34,6 +34,14 @@ type RunnerConfig struct {
 	// isn't a secret or per-tenant value, so it's fine to read straight
 	// from RunnerConfig rather than resolved per execution.
 	DoclingURL string
+	// ArtifactStore backs the SDK client's file I/O (e.g. artifacts written
+	// by the bash/file tools) for this execution when set. Like RAGService,
+	// callers embedding automation in a multi-tenant host are expected to
+	// resolve/build one per execution scoped to the right tenant, rather
+	// than relying on ClientConfig's own per-process default (local disk) -
+	// see sdk.ClientConfig.ArtifactStore's doc comment for the fallback
+	// behavior when left nil.
+	ArtifactStore sdk.ArtifactStore
 	// RequireSandbox makes the bash tool refuse to run unconfined instead
 	// of silently degrading — see sdk.ClientConfig.RequireSandbox /
 	// bash.ToolConfig.RequireSandbox for the underlying mechanism. Leave
@@ -132,6 +140,7 @@ func (r *Runner) buildClientConfig(model sdk.ModelIdentifier) *sdk.ClientConfig 
 		WebSearchKeys:          r.cfg.WebSearchKeys,
 		RAGService:             r.cfg.RAGService,
 		DoclingURL:             r.cfg.DoclingURL,
+		ArtifactStore:          r.cfg.ArtifactStore,
 		RequireSandbox:         r.cfg.RequireSandbox,
 	}
 }
