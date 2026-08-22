@@ -42,6 +42,18 @@ type RunnerConfig struct {
 	// see sdk.ClientConfig.ArtifactStore's doc comment for the fallback
 	// behavior when left nil.
 	ArtifactStore sdk.ArtifactStore
+	// MCPServers registers external MCP servers' tools for this execution,
+	// same as sdk.ClientConfig.MCPServers - unlike WebSearchKeys/RAGService/
+	// ArtifactStore this was never threaded through here at all, so a
+	// multi-tenant host embedding automation (seshat-ai/seshat-server) had
+	// no way to give a cloud-targeted job access to org- or per-employee-
+	// scoped MCP tools (Slack/Outlook/Teams/Gmail via a bridged Bearer
+	// token, internal Jira/GitHub servers, ...) the way an interactive
+	// session already can. Callers resolving a per-employee bridged token
+	// are expected to do so per execution, the same way RAGService is
+	// resolved per organization rather than read from a single process-wide
+	// config.
+	MCPServers []sdk.MCPServerConfig
 	// RequireSandbox makes the bash tool refuse to run unconfined instead
 	// of silently degrading — see sdk.ClientConfig.RequireSandbox /
 	// bash.ToolConfig.RequireSandbox for the underlying mechanism. Leave
@@ -141,6 +153,7 @@ func (r *Runner) buildClientConfig(model sdk.ModelIdentifier) *sdk.ClientConfig 
 		RAGService:             r.cfg.RAGService,
 		DoclingURL:             r.cfg.DoclingURL,
 		ArtifactStore:          r.cfg.ArtifactStore,
+		MCPServers:             r.cfg.MCPServers,
 		RequireSandbox:         r.cfg.RequireSandbox,
 	}
 }
