@@ -42,10 +42,25 @@ func NewStoreWithBackend(backend Backend) (*Store, error) {
 	}, nil
 }
 
-// SaveSession saves a session to disk
+// SaveSession saves a session to disk. Title is preserved from any
+// already-persisted record rather than taken from the incoming metadata:
+// UpdateSessionTitle is the only place in this package that ever writes a
+// real Title, and the in-memory Session.state.Metadata a caller's snapshot
+// comes from is never updated in place when that happens (the async
+// auto-title flow only touches the store, by design, since a session may
+// be closed/reloaded by the time it completes). Without this, a routine
+// save issued after the title lands - e.g. persisting state at the end of
+// the very turn that raced the title generation - would silently regress
+// the title back to its stale placeholder. A session with no existing
+// record yet (first save, at creation) keeps whatever Title the caller
+// supplied.
 func (s *Store) SaveSession(sessionID types.SessionID, metadata *types.SessionMetadata) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	if existing, err := s.backend.LoadSession(sessionID); err == nil && existing != nil && existing.Title != "" {
+		metadata.Title = existing.Title
+	}
 
 	return s.backend.SaveSession(sessionID, metadata)
 }
