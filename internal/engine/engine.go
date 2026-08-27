@@ -235,9 +235,10 @@ func (e *Engine) memoryContext() string {
 	return e.memoryService.Context()
 }
 
-// SetOnSessionTitled registers a callback that is invoked once — after the
-// first turn of a session completes — with the AI-generated session title.
-// Passing nil disables the feature.
+// SetOnSessionTitled registers a callback that is invoked once — as soon as
+// the session's first message is submitted, running concurrently with that
+// first turn rather than waiting for it to finish — with the AI-generated
+// session title. Passing nil disables the feature.
 func (e *Engine) SetOnSessionTitled(fn func(types.SessionID, string)) {
 	e.onSessionTitled = fn
 }
