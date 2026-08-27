@@ -14,6 +14,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 - `docling_convert`'s tool description now explicitly tells the agent to convert a whole PPTX/document in a single call rather than improvising a per-slide/per-image workaround (terminal commands, ad-hoc scripts, individually OCR'ing extracted slide images) — observed in a real session, this produced many small tool calls instead of the one call docling-serve is designed to handle in a single pass, with worse layout/reading-order/table-structure results than letting docling process the whole document at once.
+- `internal/engine/session.go`: async session-title generation (`generateTitleAsync`, wired through `Engine.SetOnSessionTitled`) now fires as soon as a new session's first message is persisted, instead of after that first turn finishes. It only ever reads the first user message text — never the assistant's response — so gating it on turn completion had no functional reason and just meant a session sat as "Untitled" through the entirety of its first (often the longest) reply before a client polling for the title would ever see one. `firstUserMessageText`, only used by the old post-turn call site, is removed; the trigger now passes the already-in-hand submitted text directly.
 
 ## [1.2.3] — 2026-08-01
 

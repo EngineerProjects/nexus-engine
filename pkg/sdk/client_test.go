@@ -1898,6 +1898,14 @@ func TestAskCompletesAutoModeMonoRun(t *testing.T) {
 		PersistSessions: false,
 		PermissionMode:  types.PermissionModeAuto,
 		AutoCompact:     false,
+		// Title generation now fires as soon as the first message is
+		// persisted (see session.go), not after the turn completes, so it
+		// has time to actually reach this test's mock server before the
+		// test tears down - and this test's handler asserts an exact,
+		// ordinal request sequence for the tool-call flow under test, with
+		// no slot for an unrelated title request. Same pattern as the
+		// other DisableTitleGeneration: true tests in this file.
+		DisableTitleGeneration: true,
 	})
 	if err != nil {
 		t.Fatalf("NewClient failed: %v", err)
