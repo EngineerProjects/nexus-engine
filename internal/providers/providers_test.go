@@ -37,7 +37,10 @@ func TestProviderAdapterDispatch(t *testing.T) {
 		{"foundry", types.APIProviderFoundry, "claude-x", "/v1/messages", [2]string{"api-key", "k"}, "messages"},
 		{"openai", types.APIProviderOpenAI, "gpt", "/chat/completions", [2]string{"Authorization", "Bearer k"}, "messages"},
 		{"zai", types.APIProviderZAi, "glm", "/chat/completions", [2]string{"x-api-key", "k"}, "messages"},
-		{"minimax", types.APIProviderMiniMax, "mm", "/chat/completions", [2]string{"Authorization", "Bearer k"}, "messages"},
+		// MiniMax's BaseURL is already the full ChatCompletion v2 endpoint
+		// path, unlike the other OpenAI-compatible providers — nothing gets
+		// appended, so the endpoint is exactly the configured BaseURL.
+		{"minimax", types.APIProviderMiniMax, "mm", baseURL, [2]string{"Authorization", "Bearer k"}, "messages"},
 		{"openrouter", types.APIProviderOpenRouter, "or", "/chat/completions", [2]string{"Authorization", "Bearer k"}, "messages"},
 		{"mistral", types.APIProviderMistral, "mi", "/chat/completions", [2]string{"Authorization", "Bearer k"}, "messages"},
 		{"gemini", types.APIProviderGemini, "gemini-x", ":generateContent", [2]string{"Authorization", "Bearer k"}, "contents"},
@@ -91,6 +94,19 @@ func TestProviderAdapterDispatch(t *testing.T) {
 				t.Errorf("body missing top-level key %q; got keys %v", tc.wantBodyKey, keysOf(payload))
 			}
 		})
+	}
+}
+
+// TestMiniMaxEndpointDoesNotDoubleAppendPath verifies the fix for a malformed
+// MiniMax URL: its default BaseURL is already the full ChatCompletion v2
+// endpoint path, not an API root like the other OpenAI-compatible providers,
+// so GetEndpoint must not append "/chat/completions" on top of it.
+func TestMiniMaxEndpointDoesNotDoubleAppendPath(t *testing.T) {
+	config := &Config{Provider: types.APIProviderMiniMax, APIKey: "k"}
+	got := config.GetEndpoint("MiniMax-M2.7")
+	want := "https://api.minimax.chat/v1/text/chatcompletion_v2"
+	if got != want {
+		t.Fatalf("GetEndpoint() = %q, want %q", got, want)
 	}
 }
 

@@ -143,9 +143,13 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
             (incohérence interne, sans impact tant que le code est mort)
 
 - [ ] **MiniMax — URL malformée, 404 garanti**
-      - [ ] `internal/providers/config.go:155,368-369` — `BaseURL` est déjà
+      - [x] `internal/providers/config.go:155,368-369` — `BaseURL` est déjà
             un chemin complet (`.../text/chatcompletion_v2`), mais
-            `GetEndpoint` rajoute `/chat/completions` par-dessus
+            `GetEndpoint` rajoutait `/chat/completions` par-dessus ✅ FIXÉ
+            — `GetEndpoint` a maintenant un cas dédié `APIProviderMiniMax`
+            qui renvoie `GetBaseURL()` tel quel, sans suffixe. Tests :
+            `TestMiniMaxEndpointDoesNotDoubleAppendPath`, mise à jour de
+            `TestProviderAdapterDispatch/minimax`.
       - [ ] `internal/providers/registry.go:134` décrit MiniMax comme
             "Anthropic-compatible" alors qu'il route réellement via
             `openAICompatAdapter` (`adapter.go:54`) — description à corriger
