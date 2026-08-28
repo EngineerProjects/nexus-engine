@@ -131,7 +131,7 @@ func AllProvidersInfo() map[types.APIProvider]ProviderInfo {
 		types.APIProviderMiniMax: {
 			Name:         "minimax",
 			DisplayName:  "MiniMax",
-			Description:  "Chinese AI platform (Anthropic-compatible)",
+			Description:  "Chinese AI platform (OpenAI-compatible chat completions)",
 			AuthType:     "api_key",
 			AuthTypes:    []string{"api_key"},
 			SupportsCVMM: true,

@@ -142,7 +142,7 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
             header d'auth alors que `CreateMessageStream` en envoie un
             (incohérence interne, sans impact tant que le code est mort)
 
-- [ ] **MiniMax — URL malformée, 404 garanti**
+- [x] **MiniMax — URL malformée, 404 garanti** ✅ FIXÉ
       - [x] `internal/providers/config.go:155,368-369` — `BaseURL` est déjà
             un chemin complet (`.../text/chatcompletion_v2`), mais
             `GetEndpoint` rajoutait `/chat/completions` par-dessus ✅ FIXÉ
@@ -150,9 +150,10 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
             qui renvoie `GetBaseURL()` tel quel, sans suffixe. Tests :
             `TestMiniMaxEndpointDoesNotDoubleAppendPath`, mise à jour de
             `TestProviderAdapterDispatch/minimax`.
-      - [ ] `internal/providers/registry.go:134` décrit MiniMax comme
+      - [x] `internal/providers/registry.go:134` décrivait MiniMax comme
             "Anthropic-compatible" alors qu'il route réellement via
-            `openAICompatAdapter` (`adapter.go:54`) — description à corriger
+            `openAICompatAdapter` (`adapter.go:54`) ✅ FIXÉ — description
+            corrigée en "OpenAI-compatible chat completions"
 
 ---
 
