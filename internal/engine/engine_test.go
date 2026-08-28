@@ -775,6 +775,47 @@ func TestIsRecoverableError_StructuredEngineErrors(t *testing.T) {
 	}
 }
 
+// TestIsRecoverableError_StreamResponseErrorFallsThroughToNetworkClassifier
+// verifies the fix for the incident where a mid-stream socket death was
+// wrapped by every provider's stream parser as ErrCodeAPIResponse (a
+// generically "permanent" code) and therefore never retried. When that code
+// carries a wrapped cause, isRecoverableError must classify the cause itself
+// via the network classifier instead of trusting the generic code alone.
+func TestIsRecoverableError_StreamResponseErrorFallsThroughToNetworkClassifier(t *testing.T) {
+	loop := NewLoop(nil, nil, nil, nil, nil, nil, &LoopConfig{AutoCompact: false, EnableStreaming: false}, nil)
+
+	cases := []struct {
+		name      string
+		err       error
+		wantRetry bool
+	}{
+		{
+			name:      "wrapped transient network read failure",
+			err:       types.WrapError(types.ErrCodeAPIResponse, "failed to read stream", errors.New("connection reset by peer")),
+			wantRetry: true,
+		},
+		{
+			name:      "wrapped context cancellation",
+			err:       types.WrapError(types.ErrCodeAPIResponse, "failed to read stream", context.Canceled),
+			wantRetry: false,
+		},
+		{
+			name:      "no wrapped cause",
+			err:       types.NewError(types.ErrCodeAPIResponse, "stream ended with unknown error"),
+			wantRetry: false,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := loop.isRecoverableError(tc.err)
+			if got != tc.wantRetry {
+				t.Fatalf("isRecoverableError(%v) = %v, want %v", tc.err, got, tc.wantRetry)
+			}
+		})
+	}
+}
+
 // TestRecoveryLabel_EngineErrorCodes verifies that recoveryLabel returns the
 // correct stable string label for each structured error code, without relying
 // on the error message content.
