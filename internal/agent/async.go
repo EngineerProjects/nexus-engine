@@ -369,8 +369,15 @@ func (m *AsyncAgentManager) StartAgent(config *RunConfig) (*AsyncAgent, error) {
 	// Generate unique agent ID
 	agentID := generateAgentID(config.AgentType)
 
-	// Create async agent
-	ctx, cancel := context.WithCancel(context.Background())
+	// Create async agent. Independent of the caller's context (see runAgent's
+	// config.Context override below) but still wall-clock bounded - this used
+	// to be context.WithCancel(context.Background()), i.e. cancel-only, so a
+	// stalled/looping background agent (spawn_agent/wait_agent, e.g. the
+	// "browse" tool) had no timeout at all: DefaultSubAgentTimeout was wired
+	// into the synchronous agent tool (agent_tool.go) but not here, letting a
+	// single sub-agent run unbounded instead of being killed as designed.
+	timeout := time.Duration(DefaultSubAgentTimeout) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 
 	asyncAgent := &AsyncAgent{
 		ID:              agentID,

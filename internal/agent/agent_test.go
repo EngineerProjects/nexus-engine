@@ -46,6 +46,34 @@ func TestAsyncAgentManager_BasicAgentExecution(t *testing.T) {
 	assert.Equal(t, agent.ID, retrievedAgent.ID)
 }
 
+// TestAsyncAgentManager_StartAgentHasWallClockTimeout guards against
+// regressing to the old behavior where a background agent's context was
+// context.WithCancel(context.Background()) - cancel-only, no deadline - so a
+// stalled/looping sub-agent (e.g. the spawn_agent/wait_agent "browse" tool
+// path) had nothing to stop it. DefaultSubAgentTimeout was already wired
+// into the synchronous agent tool but not into this async path.
+func TestAsyncAgentManager_StartAgentHasWallClockTimeout(t *testing.T) {
+	manager := NewAsyncAgentManager()
+	defer manager.Shutdown()
+
+	config := &RunConfig{
+		AgentType: AgentTypeExplore,
+		Task:      "Test task",
+		MaxTurns:  1,
+		Context:   context.Background(),
+	}
+
+	agent, err := manager.StartAgent(config)
+	require.NoError(t, err)
+
+	deadline, ok := agent.Ctx.Deadline()
+	require.True(t, ok, "expected the async agent's context to carry a wall-clock deadline, not be cancel-only")
+	expected := time.Now().Add(time.Duration(DefaultSubAgentTimeout) * time.Second)
+	assert.WithinDuration(t, expected, deadline, 5*time.Second)
+
+	agent.Wait()
+}
+
 // TestAsyncAgentManager_RealTimeEvents tests real-time event notifications
 func TestAsyncAgentManager_RealTimeEvents(t *testing.T) {
 	manager := NewAsyncAgentManager()

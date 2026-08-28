@@ -93,16 +93,31 @@ func (m *RodManager) Screenshot(ctx context.Context, sessionID types.SessionID, 
 		return Screenshot{}, err
 	}
 
-	return Screenshot{
+	result := Screenshot{
 		Page:          info,
 		MimeType:      "image/png",
-		DataBase64:    base64.StdEncoding.EncodeToString(image),
 		Bytes:         len(image),
 		PersistedPath: persistedPath,
 		PersistedSize: len(image),
 		FullPage:      options.FullPage,
 		TakenAt:       time.Now().UTC(),
-	}, nil
+	}
+	applyScreenshotByteCap(&result, image, m.config.MaxScreenshotBytes)
+	return result, nil
+}
+
+// applyScreenshotByteCap inlines the base64 payload on result, unless the
+// captured image exceeds maxBytes - in which case DataBase64 is left empty
+// and Truncated is set. The image is always persisted to disk regardless
+// (see persistScreenshot above); this only controls what gets embedded in
+// the tool result content that enters conversation history and gets resent
+// on every subsequent turn. maxBytes <= 0 disables the cap.
+func applyScreenshotByteCap(result *Screenshot, image []byte, maxBytes int) {
+	if maxBytes > 0 && len(image) > maxBytes {
+		result.Truncated = true
+		return
+	}
+	result.DataBase64 = base64.StdEncoding.EncodeToString(image)
 }
 
 func snapshotRevision(takenAt time.Time) string {

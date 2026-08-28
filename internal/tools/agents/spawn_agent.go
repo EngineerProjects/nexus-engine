@@ -131,10 +131,17 @@ func (t *SpawnAgentTool) Call(
 	}
 	role, _ := input.Parsed["role"].(string)
 	nickname, _ := input.Parsed["nickname"].(string)
-	maxTurns := 10
-	if v, ok := input.Parsed["max_turns"].(float64); ok && v >= 1 {
-		maxTurns = int(v)
-	}
+
+	// Resolve the agent's own MaxTurns (e.g. 35 for BrowseAgent, a deep
+	// research agent that legitimately needs more turns than a general
+	// task) before falling back to the generic default of 10 - this used
+	// to always default to 10 regardless of agent_type, silently
+	// truncating a browse agent's designed budget by more than half
+	// whenever the caller (the parent LLM turn) didn't pass an explicit
+	// max_turns override, which it rarely does.
+	agentDef := resolveSpawnAgentDef(t.reg, agentType)
+	explicitMaxTurns, hasExplicitMaxTurns := input.Parsed["max_turns"].(float64)
+	maxTurns := resolveSpawnAgentMaxTurns(agentDef, explicitMaxTurns, hasExplicitMaxTurns)
 
 	toolCtx := input.ToolContextValue()
 	callID := toolCtx.ToolUseID
@@ -174,6 +181,16 @@ func (t *SpawnAgentTool) Call(
 		// prompt after the parent's turn context has been canceled.
 		PermissionMode: types.PermissionModeBypass,
 		EventFn:        agentEventFn,
+		// Without this, AsyncAgentManager.runAgent's default continuation
+		// nudge is a bare "Continue with the task." — no structural push to
+		// wrap up and synthesize once enough ground has been covered, unlike
+		// the synchronous agent tool's equivalent config. A background
+		// research agent (e.g. browse) can otherwise keep gathering more
+		// sources turn after turn with nothing telling it "you can stop now"
+		// until it hits a hard MaxTurns/timeout wall.
+		ContinuationMessage: func(_ int, _ string) string {
+			return "If you have completed all steps of the assigned task, return your final answer now. If there is still work remaining, continue with the next step."
+		},
 	}
 
 	ag, err := t.manager.StartAgent(config)
@@ -255,6 +272,39 @@ func (t *SpawnAgentTool) Call(
 }
 
 // ─── shared helpers ───────────────────────────────────────────────────────────
+
+// resolveSpawnAgentDef looks up an agent definition using the registry
+// first, then built-ins - mirrors AgentTool.resolveAgentDef (agent_tool.go),
+// the synchronous agent tool's equivalent lookup.
+func resolveSpawnAgentDef(registry *coreagent.AgentRegistry, agentType string) *coreagent.AgentDefinition {
+	if registry != nil {
+		if def, ok := registry.Get(agentType); ok {
+			return def
+		}
+	}
+	if builtIn := coreagent.GetBuiltInAgentByType(agentType); builtIn != nil {
+		return coreagent.ToAgentDefinition(*builtIn)
+	}
+	return nil
+}
+
+// resolveSpawnAgentMaxTurns computes the turn budget for a spawned agent: an
+// explicit max_turns input always wins; otherwise the agent's own designed
+// MaxTurns (e.g. 35 for BrowseAgent, a deep research agent that legitimately
+// needs more turns than a general task) is used; falling back to the generic
+// default of 10 only when neither is available. Previously this always
+// defaulted to 10 regardless of agent_type, silently truncating a browse
+// agent's designed budget by more than half whenever the caller (the parent
+// LLM turn) didn't pass an explicit override, which it rarely does.
+func resolveSpawnAgentMaxTurns(agentDef *coreagent.AgentDefinition, explicit float64, hasExplicit bool) int {
+	if hasExplicit && explicit >= 1 {
+		return int(explicit)
+	}
+	if agentDef != nil && agentDef.MaxTurns > 0 {
+		return agentDef.MaxTurns
+	}
+	return 10
+}
 
 func nowMs() int64 {
 	return time.Now().UnixMilli()
