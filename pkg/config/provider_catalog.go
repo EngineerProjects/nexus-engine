@@ -169,6 +169,14 @@ func ValidateProviderSetup(config Config, provider sdk.APIProvider) error {
 			return fmt.Errorf("provider %s requires region", provider)
 		}
 		return nil
+	case sdk.APIProviderWorkersAI:
+		if ResolveAPIKey(config, provider) == "" {
+			return fmt.Errorf("provider %s requires API key", provider)
+		}
+		if effectiveProviderProjectID(config, provider) == "" {
+			return fmt.Errorf("provider %s requires account id", provider)
+		}
+		return nil
 	case sdk.APIProviderFoundry:
 		if ResolveAPIKey(config, provider) == "" {
 			return fmt.Errorf("provider %s requires API key", provider)
@@ -205,6 +213,8 @@ func ApplyRuntimeEnv(config Config) {
 	case sdk.APIProviderFoundry:
 		setEnvIfPresent("ANTHROPIC_FOUNDRY_BASE_URL", config.ProviderBaseURL)
 		setEnvIfPresent("ANTHROPIC_FOUNDRY_RESOURCE", config.ProviderResource)
+	case sdk.APIProviderWorkersAI:
+		setEnvIfPresent("CLOUDFLARE_ACCOUNT_ID", config.ProviderProjectID)
 	}
 }
 
@@ -339,6 +349,14 @@ func setupFieldsForProvider(provider sdk.APIProvider) []ProviderSetupField {
 				EnvVar:      "ANTHROPIC_FOUNDRY_RESOURCE",
 			},
 		)
+	case sdk.APIProviderWorkersAI:
+		fields = append(fields, ProviderSetupField{
+			Key:         "provider_project_id",
+			Label:       "Cloudflare account id",
+			Description: "Found on your Cloudflare dashboard; the API is scoped under this account",
+			EnvVar:      "CLOUDFLARE_ACCOUNT_ID",
+			Required:    true,
+		})
 	}
 
 	return fields
@@ -354,6 +372,8 @@ func setupHintForProvider(provider sdk.APIProvider) string {
 		return "Requires Google Cloud application credentials in addition to project and region."
 	case sdk.APIProviderFoundry:
 		return "Set at least one of base URL or resource id for Azure Foundry."
+	case sdk.APIProviderWorkersAI:
+		return "Requires a Cloudflare account id in addition to the API token."
 	default:
 		return ""
 	}
@@ -383,13 +403,17 @@ func effectiveProviderRegion(config Config, provider sdk.APIProvider) string {
 }
 
 func effectiveProviderProjectID(config Config, provider sdk.APIProvider) string {
-	if provider != sdk.APIProviderVertex {
-		return ""
-	}
 	if value := strings.TrimSpace(config.ProviderProjectID); value != "" {
 		return value
 	}
-	return strings.TrimSpace(os.Getenv("ANTHROPIC_VERTEX_PROJECT_ID"))
+	switch provider {
+	case sdk.APIProviderVertex:
+		return strings.TrimSpace(os.Getenv("ANTHROPIC_VERTEX_PROJECT_ID"))
+	case sdk.APIProviderWorkersAI:
+		return strings.TrimSpace(os.Getenv("CLOUDFLARE_ACCOUNT_ID"))
+	default:
+		return ""
+	}
 }
 
 func effectiveProviderBaseURL(config Config, provider sdk.APIProvider) string {

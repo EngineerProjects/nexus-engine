@@ -127,11 +127,26 @@ func TestGeminiStreamEndpoint(t *testing.T) {
 
 // TestAdapterForProviderDefault verifies unmapped/anthropic-compatible providers
 // fall back to the Anthropic wire format, matching the prior switch default.
+// WorkersAI is deliberately NOT in this list: it used to fall through to this
+// same default by omission (a bug — Cloudflare's endpoint is OpenAI-shaped,
+// not Anthropic Messages-shaped), fixed by routing it through
+// openAICompatAdapter instead. See TestAdapterForProviderWorkersAIUsesOpenAICompat.
 func TestAdapterForProviderDefault(t *testing.T) {
-	for _, p := range []types.APIProvider{types.APIProviderAnthropic, types.APIProviderBedrock, types.APIProviderVertex, types.APIProviderWorkersAI} {
+	for _, p := range []types.APIProvider{types.APIProviderAnthropic, types.APIProviderBedrock, types.APIProviderVertex} {
 		if _, ok := adapterForProvider(p).(anthropicAdapter); !ok {
 			t.Errorf("adapterForProvider(%s) = %T, want anthropicAdapter", p, adapterForProvider(p))
 		}
+	}
+}
+
+// TestAdapterForProviderWorkersAIUsesOpenAICompat verifies the fix for
+// WorkersAI silently falling through to the Anthropic Messages wire format
+// (wrong request shape, wrong auth header) because it was absent from
+// adapterForProvider's real dispatch cases. Cloudflare's Workers AI endpoint
+// (ai/v1/chat/completions) is genuinely OpenAI-compatible.
+func TestAdapterForProviderWorkersAIUsesOpenAICompat(t *testing.T) {
+	if _, ok := adapterForProvider(types.APIProviderWorkersAI).(openAICompatAdapter); !ok {
+		t.Errorf("adapterForProvider(workers-ai) = %T, want openAICompatAdapter", adapterForProvider(types.APIProviderWorkersAI))
 	}
 }
 
@@ -180,6 +195,56 @@ func TestKimiProviderConfig(t *testing.T) {
 	}
 	if !found {
 		t.Error(`expected "kimi-k3" in the Kimi model catalog`)
+	}
+}
+
+// TestWorkersAIProviderConfig locks in the fix for WorkersAI being completely
+// non-functional: it fell through to the Anthropic wire format by omission
+// from adapterForProvider (wrong request shape, wrong x-api-key auth instead
+// of Bearer), its default BaseURL was https://workers.ai/v1/chat — not a real
+// Cloudflare domain — and there was no account_id concept anywhere, even
+// though Cloudflare's real endpoint is scoped under one
+// (.../accounts/{account_id}/ai/v1/chat/completions).
+func TestWorkersAIProviderConfig(t *testing.T) {
+	t.Setenv("CLOUDFLARE_ACCOUNT_ID", "test-account-id")
+	cfg := GetProviderConfig(types.APIProviderWorkersAI)
+	if cfg == nil {
+		t.Fatal("GetProviderConfig(workers-ai) = nil")
+	}
+	if cfg.BaseURL != "https://api.cloudflare.com/client/v4" {
+		t.Errorf("workers-ai BaseURL = %q, want the real Cloudflare API domain", cfg.BaseURL)
+	}
+
+	cfg.APIKey = "test-key"
+	cfg.ProjectID = "test-account-id"
+	endpoint := cfg.GetEndpoint("@cf/meta/llama-3.1-70b-instruct")
+	wantEndpoint := "https://api.cloudflare.com/client/v4/accounts/test-account-id/ai/v1/chat/completions"
+	if endpoint != wantEndpoint {
+		t.Errorf("GetEndpoint() = %q, want %q", endpoint, wantEndpoint)
+	}
+
+	if _, ok := adapterForProvider(types.APIProviderWorkersAI).(openAICompatAdapter); !ok {
+		t.Errorf("adapterForProvider(workers-ai) = %T, want openAICompatAdapter", adapterForProvider(types.APIProviderWorkersAI))
+	}
+
+	if got := providerEnvVar(types.APIProviderWorkersAI); got != "CLOUDFLARE_API_KEY" {
+		t.Errorf("providerEnvVar(workers-ai) = %q, want CLOUDFLARE_API_KEY", got)
+	}
+}
+
+// TestValidateProviderConfig_WorkersAIRequiresAccountID verifies that a
+// WorkersAI config without an account id is rejected before ever reaching
+// the network — previously nothing in this codebase modeled account_id at
+// all, so a request would only fail late with an opaque malformed-URL error.
+func TestValidateProviderConfig_WorkersAIRequiresAccountID(t *testing.T) {
+	cfg := &Config{Provider: types.APIProviderWorkersAI, APIKey: "k"}
+	if err := ValidateProviderConfig(cfg); err == nil {
+		t.Error("expected an error when CLOUDFLARE_ACCOUNT_ID/ProjectID is missing")
+	}
+
+	cfg.ProjectID = "acct-123"
+	if err := ValidateProviderConfig(cfg); err != nil {
+		t.Errorf("unexpected error once ProjectID is set: %v", err)
 	}
 }
 

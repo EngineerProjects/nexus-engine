@@ -107,26 +107,49 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
 
 ## 🔴 Providers complètement cassés
 
-- [ ] **WorkersAI ne peut pas fonctionner** *(chantier séparé — voir note)*
-      - [ ] `internal/providers/adapter.go:50-68` — absent de
-            `adapterForProvider`, tombe sur `anthropicAdapter` par défaut
-            (mauvaise forme de requête, mauvaise auth `x-api-key`)
-      - [ ] `internal/providers/config.go:377-378` — `GetEndpoint` construit
-            une URL différente (`BaseURL + "/" + model`), incohérente avec
-            l'adaptateur utilisé
-      - [ ] `internal/providers/config.go:167,403` — `BaseURL` par défaut
-            (`https://workers.ai/v1/chat`) n'est pas le vrai domaine
-            Cloudflare (`api.cloudflare.com/client/v4/accounts/{account_id}/ai/...`)
-      - [ ] Aucun champ `account_id` dans `Config`, pourtant requis par
-            l'API réelle de Cloudflare
-      - [ ] **Investigation (28/08) :** un `account_id` Cloudflare n'est pas
-            un simple champ interne — il devrait suivre le même chemin que
-            `ProjectID` de Vertex (`ANTHROPIC_VERTEX_PROJECT_ID`), câblé
-            jusqu'à la couche publique `pkg/config/provider_catalog.go` +
-            `cmd/cli/config.go` (assistant de configuration des identifiants,
-            stockage credential). Ce n'est donc pas un bugfix isolé mais un
-            changement d'UX de configuration publique — à traiter dans le
-            même chantier que Bedrock/Vertex plutôt qu'en correctif rapide.
+- [x] **WorkersAI ne peut pas fonctionner** ✅ FIXÉ
+      **Vérifié directement sur `developers.cloudflare.com/workers-ai` (28/08) :**
+      Cloudflare expose un vrai endpoint OpenAI-compatible —
+      `POST https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1/chat/completions`,
+      auth `Authorization: Bearer {token}` — donc pas besoin d'un
+      adaptateur sur-mesure, juste router vers l'adaptateur OpenAI déjà
+      partagé par 7 autres providers.
+      - [x] `internal/providers/adapter.go` — `adapterForProvider` route
+            maintenant WorkersAI vers `openAICompatAdapter` (au lieu de
+            tomber sur `anthropicAdapter` par défaut, forme de requête et
+            header d'auth faux)
+      - [x] `internal/providers/config.go` — `GetEndpoint` construit
+            maintenant `{BaseURL}/accounts/{account_id}/ai/v1/chat/completions`
+            (le modèle va dans le corps JSON, pas dans l'URL, comme tout
+            provider OpenAI-compatible)
+      - [x] `BaseURL` par défaut corrigé vers le vrai domaine Cloudflare
+            (`https://api.cloudflare.com/client/v4`)
+      - [x] `account_id` ajouté — réutilise le champ `ProjectID` déjà
+            existant (même rôle que le project id GCP de Vertex : un
+            identifiant de compte/tenant intégré directement dans l'URL,
+            pas juste un header), câblé de bout en bout :
+            - Interne : `internal/providers/config.go`'s `DefaultConfigs()`
+              lit `CLOUDFLARE_ACCOUNT_ID` directement (même pattern que
+              `ANTHROPIC_VERTEX_PROJECT_ID` pour Vertex) ;
+              `ValidateProviderConfig` l'exige.
+            - Publique : `pkg/config/provider_catalog.go`'s
+              `effectiveProviderProjectID`/`setupFieldsForProvider`/
+              `setupHintForProvider`/`ApplyRuntimeEnv`/
+              `ValidateProviderSetup` étendus à WorkersAI — l'assistant de
+              configuration CLI expose maintenant le champ "Cloudflare
+              account id" sans aucun changement dans `cmd/cli/config.go`
+              ni `cmd/cli/runtime.go` (leur câblage `provider_project_id`
+              était déjà générique, pas spécifique à Vertex).
+      Tests : `TestAdapterForProviderWorkersAIUsesOpenAICompat`,
+      `TestWorkersAIProviderConfig`,
+      `TestValidateProviderConfig_WorkersAIRequiresAccountID` (interne),
+      `TestValidateProviderSetup_WorkersAIRequiresAccountID`,
+      `TestWorkersAISetupFieldsIncludeAccountID` (publique).
+      **Non vérifié :** la synchronisation de modèles (`fetch.go`) reste
+      cassée pour WorkersAI — Cloudflare n'a pas d'endpoint `/v1/models`
+      générique sans compte, et `FetchModels` n'a pas de paramètre
+      account_id dans sa signature actuelle. Laissé de côté plutôt que de
+      deviner un endpoint de découverte non confirmé.
 
 - [ ] **Bedrock et Vertex ne peuvent pas fonctionner**
       - [ ] `internal/providers/config.go:395-410` — aucune `BaseURL` par
@@ -274,8 +297,8 @@ Tests pour ces 3 points :
       direct, pas une source tierce) :** la page pricing/quick_start ne
       liste plus que `deepseek-v4-flash`, `deepseek-v4-pro`,
       `deepseek-v4-flash-vision-exp` (tous ~1M contexte / 384K output) —
-      aucune mention de `deepseek-chat`/`deepseek-reasoner`/
-      `deepseek-coder-v2`, qui correspondent bien aux noms **legacy
+      aucune mention de `deepseek-chat`/`deepseek-reasoner`/`deepseek-coder-v2`,
+      qui correspondent bien aux noms **legacy
       rapportés retirés le 2026-07-24**. Ce n'était donc pas juste "la
       fenêtre de contexte est inversée" mais un catalogue entier construit
       sur des IDs de modèles qui ne résolvent probablement plus.

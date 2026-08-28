@@ -164,7 +164,12 @@ func DefaultConfigs() map[types.APIProvider]*Config {
 		},
 		types.APIProviderWorkersAI: {
 			Provider: types.APIProviderWorkersAI,
-			BaseURL:  "https://workers.ai/v1/chat",
+			BaseURL:  "https://api.cloudflare.com/client/v4",
+			// ProjectID carries the Cloudflare account id, reusing the same
+			// slot Vertex uses for its GCP project id — both are an
+			// account/tenant identifier embedded directly in the request
+			// URL, not just a header value.
+			ProjectID: os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
 			ModelAliasMapping: map[string]string{
 				"llama":    "@cf/meta/llama-3.1-70b-instruct",
 				"deepseek": "@cf/deepseek-ai/deepseek-r1",
@@ -334,7 +339,12 @@ func (c *Config) GetEndpoint(model string) string {
 		return c.GetBaseURL() + "/api/chat"
 
 	case types.APIProviderWorkersAI:
-		return c.BaseURL + "/" + resolvedModel
+		// Cloudflare's OpenAI-compatible endpoint is scoped under the
+		// account id (https://api.cloudflare.com/client/v4/accounts/
+		// {account_id}/ai/v1/chat/completions) — the model itself is
+		// specified in the request body, not the URL, matching every
+		// other OpenAI-compatible provider this SDK talks to.
+		return c.GetBaseURL() + "/accounts/" + c.ProjectID + "/ai/v1/chat/completions"
 
 	case types.APIProviderCodex:
 		return c.GetBaseURL() + "/responses"
@@ -359,7 +369,7 @@ var defaultBaseURLs = map[types.APIProvider]string{
 	types.APIProviderZAi:        "https://api.z.ai/api/paas/v4",
 	types.APIProviderOpenRouter: "https://openrouter.ai/api/v1",
 	types.APIProviderMiniMax:    "https://api.minimax.chat/v1/text/chatcompletion_v2",
-	types.APIProviderWorkersAI:  "https://workers.ai/v1/chat",
+	types.APIProviderWorkersAI:  "https://api.cloudflare.com/client/v4",
 	types.APIProviderFoundry:    "https://your-resource.services.ai.azure.com/anthropic/v1",
 	types.APIProviderMistral:    "https://api.mistral.ai/v1",
 	types.APIProviderKimi:       "https://api.moonshot.ai/v1",
@@ -422,6 +432,9 @@ func ValidateProviderConfig(config *Config) error {
 	case types.APIProviderWorkersAI:
 		if config.APIKey == "" {
 			return fmt.Errorf("Workers AI requires CLOUDFLARE_API_KEY to be set")
+		}
+		if config.ProjectID == "" {
+			return fmt.Errorf("Workers AI requires CLOUDFLARE_ACCOUNT_ID to be set")
 		}
 
 	case types.APIProviderMistral:
