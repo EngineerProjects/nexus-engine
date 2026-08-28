@@ -3053,6 +3053,32 @@ func TestBuildRequestBody_AnthropicSystemPromptBlocksWithCache(t *testing.T) {
 	}
 }
 
+// TestHTTPClientForProvider_OllamaGetsLongerResponseHeaderTimeout verifies the
+// fix for local Ollama requests failing when a large model takes longer than
+// the shared 60s ResponseHeaderTimeout to load and emit its first byte —
+// legitimate on constrained hardware or a cold model, unlike a remote API
+// that's already warm. Ollama gets its own longer timeout; every other
+// provider keeps the default (checked here via OpenAI as a representative).
+func TestHTTPClientForProvider_OllamaGetsLongerResponseHeaderTimeout(t *testing.T) {
+	ollamaClient := httpClientForProvider(types.APIProviderOllama)
+	ollamaTransport, ok := ollamaClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected *http.Transport, got %T", ollamaClient.Transport)
+	}
+	if ollamaTransport.ResponseHeaderTimeout <= defaultResponseHeaderTimeout {
+		t.Fatalf("Ollama ResponseHeaderTimeout = %v, want > default %v", ollamaTransport.ResponseHeaderTimeout, defaultResponseHeaderTimeout)
+	}
+
+	defaultClient := httpClientForProvider(types.APIProviderOpenAI)
+	defaultTransport, ok := defaultClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected *http.Transport, got %T", defaultClient.Transport)
+	}
+	if defaultTransport.ResponseHeaderTimeout != defaultResponseHeaderTimeout {
+		t.Fatalf("OpenAI ResponseHeaderTimeout = %v, want unchanged default %v", defaultTransport.ResponseHeaderTimeout, defaultResponseHeaderTimeout)
+	}
+}
+
 // TestGetCodexHTTPClientHasNoBodyCoveringTimeout guards against regressing to
 // the old getCodexHTTPClient behavior: it used to set http.Client.Timeout,
 // which (unlike every other provider's newStreamingHTTPClient) covers the

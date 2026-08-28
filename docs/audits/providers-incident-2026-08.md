@@ -199,14 +199,17 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
             généralement documentés à 128K, pas 64K — à vérifier contre la
             doc officielle DeepSeek avant de changer
 
-- [ ] **Ollama — timeout de 60s potentiellement trop court pour un gros modèle local**
-      - [ ] `internal/providers/client.go:63` — `ResponseHeaderTimeout: 60s`
-            partagé par tous les providers via `newStreamingHTTPClient()`,
-            sans override pour Ollama
-      - [ ] Un modèle local volumineux qui charge depuis le disque ou tourne
-            sur CPU peut légitimement dépasser 60s avant le premier octet
-      - [ ] Fix envisagé : override spécifique à Ollama (timeout plus long,
-            ou configurable)
+- [x] **Ollama — timeout de 60s potentiellement trop court pour un gros modèle local** ✅ FIXÉ
+      **Problème :** `ResponseHeaderTimeout: 60s` était partagé par tous les
+      providers via `newStreamingHTTPClient()`, sans override pour Ollama —
+      un modèle local volumineux qui charge depuis le disque ou tourne sur
+      CPU peut légitimement dépasser 60s avant le premier octet.
+      **Fix :** nouveau `httpClientForProvider()` dispatche Ollama vers
+      `ollamaResponseHeaderTimeout` (5 minutes) au lieu du
+      `defaultResponseHeaderTimeout` (60s) partagé par les autres
+      providers ; Codex garde son chemin dédié (`getCodexHTTPClient`,
+      cookie jar Cloudflare). Test :
+      `TestHTTPClientForProvider_OllamaGetsLongerResponseHeaderTimeout`.
 
 ---
 
