@@ -434,7 +434,7 @@ func cloneContentBlock(block ContentBlock) ContentBlock {
 		}
 		return cloned
 	case ToolResultContent:
-		cloned := ToolResultContent{ToolUseID: v.ToolUseID, Content: v.Content, IsError: v.IsError}
+		cloned := ToolResultContent{ToolUseID: v.ToolUseID, Content: v.Content, IsError: v.IsError, CacheControl: v.CacheControl}
 		if v.Metadata != nil {
 			metadata := make(map[string]any, len(*v.Metadata))
 			for k, value := range *v.Metadata {
