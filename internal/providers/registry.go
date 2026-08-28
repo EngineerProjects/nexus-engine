@@ -178,13 +178,18 @@ func AllProvidersInfo() map[types.APIProvider]ProviderInfo {
 			AuthTypes:    []string{"api_key"},
 			SupportsCVMM: true,
 			SupportsPC:   false,
+			// deepseek-chat/deepseek-reasoner/deepseek-coder-v2 (the
+			// previous catalog here) are legacy V3.1-era model IDs;
+			// DeepSeek's own pricing docs (api-docs.deepseek.com, checked
+			// 2026-08-28) list only the V4 lineup below, with no mention of
+			// the old names at all.
 			Models: []ModelInfo{
-				{Identifier: "deepseek-chat", ContextWindow: 64000, MaxOutput: 8192, DefaultTemperature: 0.7, Description: "DeepSeek Chat — General-purpose coding and chat model.",
+				{Identifier: "deepseek-v4-flash", ContextWindow: 1048576, MaxOutput: 393216, DefaultTemperature: 0.7, Description: "DeepSeek V4 Flash — Fast, cost-effective default. 1M context, supports both thinking and non-thinking modes.",
+					Capabilities: model.Capabilities{FunctionCalling: true, Streaming: true}},
+				{Identifier: "deepseek-v4-pro", ContextWindow: 1048576, MaxOutput: 393216, DefaultTemperature: 0.7, Description: "DeepSeek V4 Pro — Flagship, highest-capability model. Same 1M context/384K output as Flash, ~3x the cost, for demanding reasoning and coding tasks.",
+					Capabilities: model.Capabilities{FunctionCalling: true, Streaming: true}},
+				{Identifier: "deepseek-v4-flash-vision-exp", ContextWindow: 1048576, MaxOutput: 393216, DefaultTemperature: 0.7, Description: "DeepSeek V4 Flash Vision (experimental) — Same specs as Flash, adds image understanding. No FIM completion support.",
 					Capabilities: model.Capabilities{Vision: true, FunctionCalling: true, Streaming: true}},
-				{Identifier: "deepseek-reasoner", ContextWindow: 64000, MaxOutput: 32000, DefaultTemperature: 0.7, Description: "DeepSeek Reasoner — Deep reasoning model competitive with o1.",
-					Capabilities: model.Capabilities{FunctionCalling: true, Streaming: true}},
-				{Identifier: "deepseek-coder-v2", ContextWindow: 128000, MaxOutput: 8192, DefaultTemperature: 0.0, Description: "DeepSeek Coder V2 — State-of-the-art code model.",
-					Capabilities: model.Capabilities{FunctionCalling: true, Streaming: true}},
 			},
 		},
 		types.APIProviderOpenCode: {

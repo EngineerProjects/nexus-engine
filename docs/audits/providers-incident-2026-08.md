@@ -269,23 +269,43 @@ tout changement, conformément à la note de scope plus bas.
 Tests pour ces 3 points :
 `TestRegistryPromptCachingMetadataMatchesWhatIsActuallyImplemented`.
 
-- [ ] **DeepSeek — fenêtre de contexte, à ne PAS corriger sans vérification directe**
-      **Recherche (28/08) :** les résultats de recherche indiquent que
-      `deepseek-chat`/`deepseek-reasoner` seraient des noms de modèles
-      **legacy retirés le 2026-07-24**, remplacés par `deepseek-v4-flash`
-      (fenêtre de ~1M tokens) — très différent des `64000`/`128000`
-      actuellement dans `registry.go:174-178`. Mais ces résultats viennent
-      de sources secondaires (blogs tiers, pas la doc officielle
-      `api-docs.deepseek.com` elle-même), donc **pas assez fiable pour
-      changer le code ici**. Si vrai, le problème n'est plus juste "la
-      fenêtre de contexte est inversée" mais potentiellement "les IDs de
-      modèles eux-mêmes ne résolvent plus" — un changement à l'aveugle sur
-      la seule valeur `ContextWindow` serait pire que ne rien faire.
-      **Action recommandée :** vérifier directement sur
-      `api-docs.deepseek.com` (pas de source tierce) avant de toucher à ce
-      fichier, et si les noms de modèles ont vraiment changé, traiter ça
-      comme un rafraîchissement de catalogue complet, pas une correction
-      ponctuelle.
+- [x] **DeepSeek — catalogue de modèles entièrement obsolète (IDs retirés, pas juste la fenêtre de contexte)** ✅ FIXÉ
+      **Vérifié directement sur `api-docs.deepseek.com` (28/08, fetch
+      direct, pas une source tierce) :** la page pricing/quick_start ne
+      liste plus que `deepseek-v4-flash`, `deepseek-v4-pro`,
+      `deepseek-v4-flash-vision-exp` (tous ~1M contexte / 384K output) —
+      aucune mention de `deepseek-chat`/`deepseek-reasoner`/
+      `deepseek-coder-v2`, qui correspondent bien aux noms **legacy
+      rapportés retirés le 2026-07-24**. Ce n'était donc pas juste "la
+      fenêtre de contexte est inversée" mais un catalogue entier construit
+      sur des IDs de modèles qui ne résolvent probablement plus.
+      **Fix :** `registry.go` et le `ModelAliasMapping` de `config.go`
+      (aliases `default`/`chat`/`coder`/`reasoner`/`r1`) repointés vers les
+      3 modèles V4 actuels, avec les bonnes fenêtres de contexte (1048576)
+      et sorties max (393216). Test :
+      `TestDeepSeekCatalogUsesCurrentModelIDs` (échoue si un ID retiré
+      réapparaît, vérifie que les 3 IDs actuels sont présents avec un
+      contexte ≥1M, et qu'aucun alias ne pointe vers un ID retiré). Un
+      test existant (`pkg/config/config_test.go`'s
+      `TestProviderForModelUsesCatalog`) utilisait `deepseek-chat` comme
+      exemple réel de lookup catalogue — mis à jour vers
+      `deepseek-v4-flash`.
+      **Note :** l'entrée `deepseek/deepseek-r1` sous OpenRouter
+      (`registry.go:169`) n'a pas été touchée — c'est un routage OpenRouter
+      indépendant de l'API directe DeepSeek, hors du scope de cette
+      vérification.
+
+- [ ] **Codex — `ModelAliasMapping` pointe vers des modèles déjà confirmés cassés dans ce même fichier**
+      **Découvert (28/08) en corrigeant DeepSeek, pas encore corrigé.**
+      `internal/providers/config.go` (aliases `default`/`codex` → 
+      `gpt-5.3-codex`, `5.2` → `gpt-5.2-codex`) pointe vers des IDs que
+      `internal/providers/registry.go`'s propre commentaire qualifie de
+      *"confirmed broken by a real ChatGPT-account session"* — le
+      catalogue de `registry.go` liste en réalité `gpt-5.6-sol`, `gpt-5.5`,
+      `gpt-5.4-mini`. Donc taper `codex:default` ou `codex:codex` envoie
+      un modèle que ce même repo sait déjà ne pas fonctionner. Incohérence
+      interne pure, vérifiable sans aucune recherche externe — juste
+      aligner les alias sur le catalogue déjà correct.
 
 ---
 

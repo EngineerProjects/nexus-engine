@@ -213,12 +213,17 @@ func DefaultConfigs() map[types.APIProvider]*Config {
 		types.APIProviderDeepSeek: {
 			Provider: types.APIProviderDeepSeek,
 			BaseURL:  "https://api.deepseek.com/v1",
+			// deepseek-chat/deepseek-reasoner (targeted by these aliases
+			// previously) are legacy V3.1-era model IDs; DeepSeek's own
+			// pricing docs (api-docs.deepseek.com, checked 2026-08-28) list
+			// only the V4 lineup below, with no mention of the old names.
 			ModelAliasMapping: map[string]string{
-				"default":  "deepseek-chat",
-				"chat":     "deepseek-chat",
-				"coder":    "deepseek-chat",
-				"reasoner": "deepseek-reasoner",
-				"r1":       "deepseek-reasoner",
+				"default":  "deepseek-v4-flash",
+				"chat":     "deepseek-v4-flash",
+				"flash":    "deepseek-v4-flash",
+				"pro":      "deepseek-v4-pro",
+				"reasoner": "deepseek-v4-pro",
+				"vision":   "deepseek-v4-flash-vision-exp",
 			},
 		},
 		types.APIProviderOpenCode: {

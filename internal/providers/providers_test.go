@@ -3279,6 +3279,57 @@ func TestBuildRequestBody_FoundrySystemPromptBlocksWithCache(t *testing.T) {
 //     field at all) — SupportsPC: false reflects what is actually
 //     implemented, not what OpenRouter could theoretically support for a
 //     Claude sub-model sent in Anthropic's native wire shape.
+//
+// TestDeepSeekCatalogUsesCurrentModelIDs verifies the fix for a stale
+// registry: deepseek-chat/deepseek-reasoner/deepseek-coder-v2 were legacy
+// V3.1-era model IDs that DeepSeek's own pricing docs no longer list at all
+// (reported retired 2026-07-24) — every request built against the old
+// catalog would have targeted a model ID that no longer resolves. The
+// catalog and alias mapping now point at the current V4 lineup.
+func TestDeepSeekCatalogUsesCurrentModelIDs(t *testing.T) {
+	info, ok := AllProvidersInfo()[types.APIProviderDeepSeek]
+	if !ok {
+		t.Fatal("expected DeepSeek provider info")
+	}
+
+	wantIDs := map[string]bool{
+		"deepseek-v4-flash":            false,
+		"deepseek-v4-pro":              false,
+		"deepseek-v4-flash-vision-exp": false,
+	}
+	staleIDs := map[string]bool{
+		"deepseek-chat":     true,
+		"deepseek-reasoner": true,
+		"deepseek-coder-v2": true,
+	}
+	for _, m := range info.Models {
+		if _, isStale := staleIDs[m.Identifier]; isStale {
+			t.Errorf("registry still lists retired model ID %q", m.Identifier)
+		}
+		if _, ok := wantIDs[m.Identifier]; ok {
+			wantIDs[m.Identifier] = true
+		}
+		if m.ContextWindow < 1000000 {
+			t.Errorf("model %q: expected ~1M context window, got %d", m.Identifier, m.ContextWindow)
+		}
+	}
+	for id, found := range wantIDs {
+		if !found {
+			t.Errorf("expected current model %q in DeepSeek catalog", id)
+		}
+	}
+
+	config := GetProviderConfig(types.APIProviderDeepSeek)
+	if config == nil {
+		t.Fatal("expected DeepSeek provider config")
+	}
+	for alias, target := range config.ModelAliasMapping {
+		if staleIDs[target] {
+			t.Errorf("alias %q still resolves to retired model ID %q", alias, target)
+		}
+	}
+}
+
 func TestRegistryPromptCachingMetadataMatchesWhatIsActuallyImplemented(t *testing.T) {
 	info := AllProvidersInfo()
 
