@@ -79,12 +79,17 @@ func AllProvidersInfo() map[types.APIProvider]ProviderInfo {
 			// gpt-5.3-codex/gpt-5.2-codex/gpt-5.4-codex all confirmed broken by
 			// a real ChatGPT-account session ("The 'gpt-5.X-codex' model is
 			// not supported when using Codex with a ChatGPT account"). The
-			// three below are instead confirmed straight from that account's
-			// own working VS Code Codex picker: gpt-5.6-sol (their default)
-			// and gpt-5.5 are both confirmed working; gpt-5.4-mini was never
-			// reported broken and is also present in that same picker.
-			// Present in the picker but not yet confirmed working here:
-			// gpt-5.6-terra, gpt-5.6-luna, gpt-5.4 (no "-mini").
+			// three below are confirmed working via that same live session
+			// (both from the account's own VS Code Codex picker and a direct
+			// API smoke test, 2026-08-28).
+			//
+			// Also confirmed working live (2026-08-28) but not yet added as
+			// full catalog entries below, pending real context/output-limit
+			// numbers rather than a guess: gpt-5.6-terra, gpt-5.6-luna (same
+			// gpt-5.6 family as gpt-5.6-sol) and gpt-5.4 (no "-mini"). Usable
+			// today via an explicit "codex:<id>" override even though they
+			// aren't listed here — this repo's IsSupportedModel never gates
+			// on catalog membership.
 			Models: []ModelInfo{
 				{Identifier: "gpt-5.6-sol", ContextWindow: 200000, MaxOutput: 100000, DefaultTemperature: 1.0, Description: "GPT-5.6-Sol — Flagship Codex model via ChatGPT Pro subscription.",
 					Capabilities: model.Capabilities{FunctionCalling: true, Streaming: true}},
