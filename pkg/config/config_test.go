@@ -276,7 +276,7 @@ func TestProviderForModelUsesCatalog(t *testing.T) {
 	if provider := ProviderForModel("@cf/meta/llama-3.1-70b-instruct"); provider != sdk.APIProviderWorkersAI {
 		t.Fatalf("unexpected provider: got %q", provider)
 	}
-	if provider := ProviderForModel("deepseek-chat"); provider != sdk.APIProviderDeepSeek {
+	if provider := ProviderForModel("deepseek-v4-flash"); provider != sdk.APIProviderDeepSeek {
 		t.Fatalf("unexpected provider: got %q", provider)
 	}
 	if provider := ProviderForModel("claude-sonnet-4"); provider != sdk.APIProviderOpenCode {
