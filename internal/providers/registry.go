@@ -105,7 +105,7 @@ func AllProvidersInfo() map[types.APIProvider]ProviderInfo {
 			Models: []ModelInfo{
 				{Identifier: "mistral-large-latest", ContextWindow: 131072, MaxOutput: 16384, DefaultTemperature: 0.7, Description: "Mistral Large — Top-tier reasoning model. Ideal for complex tasks requiring deep understanding and multi-step reasoning.",
 					Capabilities: model.Capabilities{Vision: true, FunctionCalling: true, Streaming: true}},
-				{Identifier: "mistral-small-latest", ContextWindow: 32768, MaxOutput: 8192, DefaultTemperature: 0.7, Description: "Mistral Small — Efficient and capable. Strong performance for most tasks at lower cost and latency.",
+				{Identifier: "mistral-small-latest", ContextWindow: 131072, MaxOutput: 8192, DefaultTemperature: 0.7, Description: "Mistral Small — Efficient and capable. Strong performance for most tasks at lower cost and latency.",
 					Capabilities: model.Capabilities{FunctionCalling: true, Streaming: true}},
 				{Identifier: "open-mistral-7b", ContextWindow: 32768, MaxOutput: 4096, DefaultTemperature: 0.7, Description: "Mistral 7B — Lightweight open-source model. Best for high-throughput use cases where speed is critical.",
 					Capabilities: model.Capabilities{FunctionCalling: true, Streaming: true}},
@@ -152,7 +152,15 @@ func AllProvidersInfo() map[types.APIProvider]ProviderInfo {
 			AuthType:     "api_key",
 			AuthTypes:    []string{"api_key"},
 			SupportsCVMM: true,
-			SupportsPC:   true,
+			// OpenRouter does support prompt caching for some underlying
+			// models (e.g. Anthropic's cache_control), but only when the
+			// request is sent in the native Anthropic wire shape — this
+			// codebase routes OpenRouter through the OpenAI-compatible
+			// adapter (chat/completions body), which has no cache_control
+			// field at all, so no request this codebase sends actually gets
+			// cached today. false reflects what's actually implemented,
+			// not what OpenRouter could theoretically support.
+			SupportsPC: false,
 			Models: []ModelInfo{
 				{Identifier: "anthropic/claude-3.5-sonnet", ContextWindow: 200000, MaxOutput: 8192, DefaultTemperature: 1.0, Description: "Claude 3.5 Sonnet via OpenRouter — Top-quality model accessible through a single unified API key.",
 					Capabilities: model.Capabilities{Vision: true, FunctionCalling: true, Streaming: true}},
@@ -284,22 +292,28 @@ func AllProvidersInfo() map[types.APIProvider]ProviderInfo {
 			AuthType:     "api_key",
 			AuthTypes:    []string{"api_key"},
 			SupportsCVMM: true,
-			SupportsPC:   false,
+			// Moonshot caches automatically server-side (same-prefix requests
+			// hit the cache with no cache_control marker or other client-side
+			// action required), unlike Anthropic's opt-in mechanism — so this
+			// is accurate regardless of what this codebase's own request
+			// building does. See
+			// https://platform.moonshot.ai/docs/guide/use-context-caching-feature-of-kimi-api.
+			SupportsPC: true,
 			// The moonshot-v1-* generation and kimi-k2.5 are being sunset by
 			// Moonshot (new registrations already blocked, full platform
 			// sunset ~Aug 31 2026) in favor of the kimi-k2.6/k2.7/k3 lineup -
 			// see https://platform.kimi.ai/docs/models.
 			Models: []ModelInfo{
-				{Identifier: "kimi-k3", ContextWindow: 1048576, MaxOutput: 1048576, DefaultTemperature: 0.7, Description: "Kimi K3 — Flagship, 2.8T-parameter native multimodal agentic model. 1M-token context, vision, and a reasoning/thinking mode for long-horizon coding and knowledge work.",
-					Capabilities: model.Capabilities{Vision: true, FunctionCalling: true, Streaming: true}},
-				{Identifier: "kimi-k2.7-code", ContextWindow: 262144, MaxOutput: 262144, DefaultTemperature: 0.7, Description: "Kimi K2.7 Code — Coding specialist, always runs in thinking mode. Best for long-horizon agentic coding over large repositories.",
-					Capabilities: model.Capabilities{FunctionCalling: true, Streaming: true}},
-				{Identifier: "kimi-k2.7-code-highspeed", ContextWindow: 262144, MaxOutput: 262144, DefaultTemperature: 0.7, Description: "Kimi K2.7 Code (high-speed) — Same coding specialist as K2.7 Code, tuned for faster (~180 tok/s) output when latency matters more than squeezing out the last bit of quality.",
-					Capabilities: model.Capabilities{FunctionCalling: true, Streaming: true}},
-				{Identifier: "kimi-k2.6", ContextWindow: 262144, MaxOutput: 262144, DefaultTemperature: 0.7, Description: "Kimi K2.6 — Multimodal model with vision, thinking mode, and agent orchestration for long-horizon coding and UI/UX generation.",
-					Capabilities: model.Capabilities{Vision: true, FunctionCalling: true, Streaming: true}},
-				{Identifier: "kimi-k2.5", ContextWindow: 262144, MaxOutput: 262144, DefaultTemperature: 0.7, Description: "Kimi K2.5 — Vision, thinking mode, agents, and coding. Being sunset by Moonshot (~Aug 31 2026); prefer K2.6, K2.7 Code, or K3 for new work.",
-					Capabilities: model.Capabilities{Vision: true, FunctionCalling: true, Streaming: true}},
+				{Identifier: "kimi-k3", ContextWindow: 1048576, MaxOutput: 1048576, DefaultTemperature: 0.7, SupportsPC: true, Description: "Kimi K3 — Flagship, 2.8T-parameter native multimodal agentic model. 1M-token context, vision, and a reasoning/thinking mode for long-horizon coding and knowledge work.",
+					Capabilities: model.Capabilities{Vision: true, FunctionCalling: true, Streaming: true, PromptCaching: true}},
+				{Identifier: "kimi-k2.7-code", ContextWindow: 262144, MaxOutput: 262144, DefaultTemperature: 0.7, SupportsPC: true, Description: "Kimi K2.7 Code — Coding specialist, always runs in thinking mode. Best for long-horizon agentic coding over large repositories.",
+					Capabilities: model.Capabilities{FunctionCalling: true, Streaming: true, PromptCaching: true}},
+				{Identifier: "kimi-k2.7-code-highspeed", ContextWindow: 262144, MaxOutput: 262144, DefaultTemperature: 0.7, SupportsPC: true, Description: "Kimi K2.7 Code (high-speed) — Same coding specialist as K2.7 Code, tuned for faster (~180 tok/s) output when latency matters more than squeezing out the last bit of quality.",
+					Capabilities: model.Capabilities{FunctionCalling: true, Streaming: true, PromptCaching: true}},
+				{Identifier: "kimi-k2.6", ContextWindow: 262144, MaxOutput: 262144, DefaultTemperature: 0.7, SupportsPC: true, Description: "Kimi K2.6 — Multimodal model with vision, thinking mode, and agent orchestration for long-horizon coding and UI/UX generation.",
+					Capabilities: model.Capabilities{Vision: true, FunctionCalling: true, Streaming: true, PromptCaching: true}},
+				{Identifier: "kimi-k2.5", ContextWindow: 262144, MaxOutput: 262144, DefaultTemperature: 0.7, SupportsPC: true, Description: "Kimi K2.5 — Vision, thinking mode, agents, and coding. Being sunset by Moonshot (~Aug 31 2026); prefer K2.6, K2.7 Code, or K3 for new work.",
+					Capabilities: model.Capabilities{Vision: true, FunctionCalling: true, Streaming: true, PromptCaching: true}},
 			},
 		},
 		types.APIProviderWorkersAI: {

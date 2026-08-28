@@ -3133,6 +3133,46 @@ func TestBuildRequestBody_FoundrySystemPromptBlocksWithCache(t *testing.T) {
 // fixed timeout to finish streaming a single turn - the cutoff killed the
 // request mid-stream, and that failure was then classified as non-retryable,
 // so the whole turn died outright.
+// TestRegistryPromptCachingMetadataMatchesWhatIsActuallyImplemented verifies
+// three low-confidence registry corrections made after checking each
+// provider's real behavior:
+//   - Kimi (Moonshot) caches automatically server-side with no client-side
+//     action required, so SupportsPC: true is accurate regardless of what
+//     this codebase's own request building does.
+//   - OpenRouter's provider-level flag claimed caching support that no
+//     model in its list actually carried, and this codebase routes
+//     OpenRouter through the OpenAI-compatible adapter (no cache_control
+//     field at all) — SupportsPC: false reflects what is actually
+//     implemented, not what OpenRouter could theoretically support for a
+//     Claude sub-model sent in Anthropic's native wire shape.
+func TestRegistryPromptCachingMetadataMatchesWhatIsActuallyImplemented(t *testing.T) {
+	info := AllProvidersInfo()
+
+	kimi, ok := info[types.APIProviderKimi]
+	if !ok {
+		t.Fatal("expected Kimi provider info")
+	}
+	if !kimi.SupportsPC {
+		t.Error("Kimi should report SupportsPC: true (automatic server-side caching)")
+	}
+	for _, m := range kimi.Models {
+		if !m.SupportsPC {
+			t.Errorf("Kimi model %s should report SupportsPC: true", m.Identifier)
+		}
+		if !m.Capabilities.PromptCaching {
+			t.Errorf("Kimi model %s should report Capabilities.PromptCaching: true", m.Identifier)
+		}
+	}
+
+	openrouter, ok := info[types.APIProviderOpenRouter]
+	if !ok {
+		t.Fatal("expected OpenRouter provider info")
+	}
+	if openrouter.SupportsPC {
+		t.Error("OpenRouter should report SupportsPC: false — this codebase never sends cache_control for it")
+	}
+}
+
 func TestGetCodexHTTPClientHasNoBodyCoveringTimeout(t *testing.T) {
 	client := getCodexHTTPClient()
 	if client.Timeout != 0 {

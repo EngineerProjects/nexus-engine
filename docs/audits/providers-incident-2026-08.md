@@ -227,22 +227,58 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
 
 ## 🟡 Confiance plus faible / mineur
 
-- [ ] **OpenRouter — drapeau `SupportsPC` mort**
-      `internal/providers/registry.go:155` (provider-level `true`) vs
-      `:157-163` (aucun des 3 modèles listés ne l'a) — le flag est affirmé
-      mais jamais câblé à un modèle concret.
+Les 3 points ci-dessous ont été vérifiés via recherche web (docs
+officielles Moonshot/Mistral/OpenRouter + issues de projets tiers) avant
+tout changement, conformément à la note de scope plus bas.
 
-- [ ] **Kimi — `SupportsPC: false` possiblement faux**
-      `internal/providers/registry.go:280-303` — tous les modèles Kimi sont
-      à `false`, alors que l'API Moonshot réelle supporterait le context
-      caching. Même classe de lacune que le bug de caching Codex déjà
-      corrigé, mais confiance plus faible (pas vérifié contre la doc
-      officielle).
+- [x] **OpenRouter — drapeau `SupportsPC` mort** ✅ FIXÉ
+      **Vérifié :** OpenRouter supporte bien le prompt caching pour
+      certains modèles sous-jacents (ex. Anthropic via `cache_control`),
+      *mais* seulement si la requête est envoyée au format natif Anthropic
+      — hors ce codebase route OpenRouter via l'adaptateur
+      OpenAI-compatible (`chat/completions`), qui n'a aucun champ
+      `cache_control`. Donc aucune requête envoyée par ce code n'est
+      réellement cachée aujourd'hui, quel que soit le modèle choisi.
+      **Fix :** `SupportsPC` provider-level passé à `false`, reflétant ce
+      qui est réellement implémenté plutôt que ce qu'OpenRouter permettrait
+      en théorie.
 
-- [ ] **Mistral — fenêtre de contexte possiblement obsolète**
-      `internal/providers/registry.go:108` — `mistral-small-latest` à
-      `32768`, alors que les générations récentes de Mistral Small sont
-      généralement documentées à ~128K.
+- [x] **Kimi — `SupportsPC: false` possiblement faux** ✅ FIXÉ
+      **Vérifié :** l'API Moonshot cache automatiquement côté serveur —
+      aucune action côté client requise (pas de `cache_control`, pas de
+      TTL, rien à changer dans le code) dès que le préfixe d'une requête
+      correspond à une requête précédente. Donc `true` est exact
+      indépendamment de ce que fait ce codebase.
+      **Fix :** `SupportsPC: true` (provider + chaque modèle) et
+      `Capabilities.PromptCaching: true` pour tous les modèles Kimi.
+
+- [x] **Mistral — fenêtre de contexte possiblement obsolète** ✅ FIXÉ
+      **Vérifié :** Mistral Small 3.1 (version courante) a une fenêtre de
+      128K confirmée par l'annonce officielle Mistral — `32768` correspond
+      à l'ancienne génération Mistral Small 3.
+      **Fix :** `mistral-small-latest` passé à `131072` (128K, même
+      convention d'unité que `mistral-large-latest` dans ce fichier).
+
+Tests pour ces 3 points :
+`TestRegistryPromptCachingMetadataMatchesWhatIsActuallyImplemented`.
+
+- [ ] **DeepSeek — fenêtre de contexte, à ne PAS corriger sans vérification directe**
+      **Recherche (28/08) :** les résultats de recherche indiquent que
+      `deepseek-chat`/`deepseek-reasoner` seraient des noms de modèles
+      **legacy retirés le 2026-07-24**, remplacés par `deepseek-v4-flash`
+      (fenêtre de ~1M tokens) — très différent des `64000`/`128000`
+      actuellement dans `registry.go:174-178`. Mais ces résultats viennent
+      de sources secondaires (blogs tiers, pas la doc officielle
+      `api-docs.deepseek.com` elle-même), donc **pas assez fiable pour
+      changer le code ici**. Si vrai, le problème n'est plus juste "la
+      fenêtre de contexte est inversée" mais potentiellement "les IDs de
+      modèles eux-mêmes ne résolvent plus" — un changement à l'aveugle sur
+      la seule valeur `ContextWindow` serait pire que ne rien faire.
+      **Action recommandée :** vérifier directement sur
+      `api-docs.deepseek.com` (pas de source tierce) avant de toucher à ce
+      fichier, et si les noms de modèles ont vraiment changé, traiter ça
+      comme un rafraîchissement de catalogue complet, pas une correction
+      ponctuelle.
 
 ---
 
