@@ -318,17 +318,22 @@ Tests pour ces 3 points :
       indépendant de l'API directe DeepSeek, hors du scope de cette
       vérification.
 
-- [ ] **Codex — `ModelAliasMapping` pointe vers des modèles déjà confirmés cassés dans ce même fichier**
-      **Découvert (28/08) en corrigeant DeepSeek, pas encore corrigé.**
-      `internal/providers/config.go` (aliases `default`/`codex` → 
-      `gpt-5.3-codex`, `5.2` → `gpt-5.2-codex`) pointe vers des IDs que
-      `internal/providers/registry.go`'s propre commentaire qualifie de
-      *"confirmed broken by a real ChatGPT-account session"* — le
-      catalogue de `registry.go` liste en réalité `gpt-5.6-sol`, `gpt-5.5`,
-      `gpt-5.4-mini`. Donc taper `codex:default` ou `codex:codex` envoie
-      un modèle que ce même repo sait déjà ne pas fonctionner. Incohérence
-      interne pure, vérifiable sans aucune recherche externe — juste
-      aligner les alias sur le catalogue déjà correct.
+- [x] **Codex — `ModelAliasMapping` pointait vers des modèles déjà confirmés cassés dans ce même fichier** ✅ FIXÉ
+      **Découvert (28/08) en corrigeant DeepSeek.** `internal/providers/config.go`
+      (aliases `default`/`codex` → `gpt-5.3-codex`, `5.2` → `gpt-5.2-codex`)
+      pointait vers des IDs que `internal/providers/registry.go`'s propre
+      commentaire qualifie de *"confirmed broken by a real ChatGPT-account
+      session"*. Incohérence interne pure, vérifiable sans aucune
+      recherche externe.
+      **Fix :** alias repointés sur le catalogue déjà correct de
+      `registry.go` — `default`/`codex` → `gpt-5.6-sol` (flagship
+      confirmé), `mini`/`codex-mini` → `gpt-5.4-mini` (inchangé, déjà
+      correct), ajout de `5.5` → `gpt-5.5`. Les alias `5.2`/`5.3` sont
+      supprimés plutôt que repointés silencieusement vers une autre
+      version. `OpenCode` a son propre alias indépendant `codex` →
+      `gpt-5.3-codex` (catalogue OpenCode Zen différent, modèle listé tel
+      quel dans son propre catalogue) — non touché, hors scope. Test :
+      `TestCodexAliasMappingPointsAtWorkingModels`.
 
 ---
 

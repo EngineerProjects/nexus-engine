@@ -3351,6 +3351,37 @@ func TestBuildRequestBody_FoundrySystemPromptBlocksWithCache(t *testing.T) {
 // (reported retired 2026-07-24) — every request built against the old
 // catalog would have targeted a model ID that no longer resolves. The
 // catalog and alias mapping now point at the current V4 lineup.
+// TestCodexAliasMappingPointsAtWorkingModels verifies the fix for Codex's
+// "default"/"codex" aliases pointing at gpt-5.3-codex — a model registry.go's
+// own catalog comment already documents as "confirmed broken by a real
+// ChatGPT-account session" (alongside gpt-5.2-codex/gpt-5.4-codex). Typing
+// codex:default or codex:codex sent a model this same repo already knew
+// didn't work. Aliases now resolve to models registry.go's catalog lists as
+// actually available (gpt-5.6-sol, gpt-5.5, gpt-5.4-mini).
+func TestCodexAliasMappingPointsAtWorkingModels(t *testing.T) {
+	cfg := GetProviderConfig(types.APIProviderCodex)
+	if cfg == nil {
+		t.Fatal("expected Codex provider config")
+	}
+
+	brokenModels := map[string]bool{
+		"gpt-5.2-codex": true,
+		"gpt-5.3-codex": true,
+		"gpt-5.4-codex": true,
+	}
+	for alias, target := range cfg.ModelAliasMapping {
+		if brokenModels[target] {
+			t.Errorf("alias %q resolves to %q, a model confirmed broken for this provider", alias, target)
+		}
+	}
+
+	for _, alias := range []string{"default", "codex"} {
+		if got := cfg.ModelAliasMapping[alias]; got != "gpt-5.6-sol" {
+			t.Errorf("alias %q = %q, want gpt-5.6-sol (the confirmed-working flagship)", alias, got)
+		}
+	}
+}
+
 func TestDeepSeekCatalogUsesCurrentModelIDs(t *testing.T) {
 	info, ok := AllProvidersInfo()[types.APIProviderDeepSeek]
 	if !ok {
