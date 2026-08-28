@@ -170,6 +170,81 @@ func TestDefaultBaseURL_MiniMaxEnablesModelSync(t *testing.T) {
 	}
 }
 
+// TestResolveRequestModel_AppliesAliasMapping guards a bug found via a live
+// smoke test against a real Codex account: model aliases (e.g. "default" ->
+// "gpt-5.6-sol") were never actually applied to the outgoing request.
+// Config.ResolveModel was only ever called inside GetEndpoint, which only
+// matters for providers whose endpoint URL embeds the model (Gemini) - every
+// OpenAI-compatible provider and Codex put the model in the JSON body via
+// ModelIdentifier.ProviderModelName(), which has no access to alias mapping.
+// A raw alias like "default" was sent to the real API verbatim and rejected:
+// {"detail":"The 'default' model is not supported when using Codex with a
+// ChatGPT account."}. resolveRequestModel is now called at the top of every
+// public entry point (CreateMessage, CreateMessageStreamResultWithCallback,
+// CreateMessageStream) so every adapter sees the resolved model consistently.
+func TestResolveRequestModel_AppliesAliasMapping(t *testing.T) {
+	config := &Config{
+		Provider: types.APIProviderCodex,
+		ModelAliasMapping: map[string]string{
+			"default": "gpt-5.6-sol",
+		},
+	}
+	client := NewClientWithConfig("k", config)
+
+	req := types.APIRequest{Model: types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "default"}}
+	resolved := client.resolveRequestModel(req)
+	if resolved.Model.Model != "gpt-5.6-sol" {
+		t.Fatalf("resolveRequestModel() model = %q, want gpt-5.6-sol", resolved.Model.Model)
+	}
+
+	// A model that isn't a known alias passes through unchanged.
+	req2 := types.APIRequest{Model: types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "gpt-5.5"}}
+	resolved2 := client.resolveRequestModel(req2)
+	if resolved2.Model.Model != "gpt-5.5" {
+		t.Fatalf("resolveRequestModel() model = %q, want unchanged gpt-5.5", resolved2.Model.Model)
+	}
+}
+
+// TestCreateMessage_SendsResolvedModelInRequestBody is an end-to-end guard
+// for the same bug at the real HTTP boundary: it spins up a fake server and
+// asserts the JSON body's "model" field is the alias's resolved target, not
+// the raw alias string a caller passed in.
+func TestCreateMessage_SendsResolvedModelInRequestBody(t *testing.T) {
+	var gotModel string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotModel = body.Model
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp-1","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+	}))
+	defer server.Close()
+
+	config := &Config{
+		Provider: types.APIProviderOpenAI,
+		BaseURL:  server.URL,
+		ModelAliasMapping: map[string]string{
+			"default": "gpt-4o",
+		},
+	}
+	client := NewClientWithConfig("k", config)
+	client.SetHTTPClient(server.Client())
+
+	_, err := client.CreateMessage(context.Background(), types.APIRequest{
+		Model:     types.ModelIdentifier{Provider: types.APIProviderOpenAI, Model: "default"},
+		MaxTokens: 10,
+		Messages:  []types.Message{types.UserMessage("m1", "hi")},
+	})
+	if err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	if gotModel != "gpt-4o" {
+		t.Fatalf("server received model %q, want resolved alias gpt-4o", gotModel)
+	}
+}
+
 func TestKimiProviderConfig(t *testing.T) {
 	cfg := GetProviderConfig(types.APIProviderKimi)
 	if cfg == nil {
@@ -3515,9 +3590,8 @@ func TestParseCodexSSEStreamCapturesCachedAndReasoningTokens(t *testing.T) {
 
 // TestBuildCodexRequestBody_FreshTurnSendsFullHistory guards the default,
 // no-continuation-hint path: the whole message history is sent, no
-// previous_response_id, but the response is still always stored (see
-// buildCodexRequestBody's doc comment) so it can anchor the next
-// iteration's continuation.
+// previous_response_id, and store is always false (see
+// buildCodexRequestBody's doc comment for why).
 func TestBuildCodexRequestBody_FreshTurnSendsFullHistory(t *testing.T) {
 	client := &Client{}
 	req := types.APIRequest{
@@ -3540,8 +3614,8 @@ func TestBuildCodexRequestBody_FreshTurnSendsFullHistory(t *testing.T) {
 	if _, ok := body["previous_response_id"]; ok {
 		t.Fatal("expected no previous_response_id on a fresh turn")
 	}
-	if body["store"] != true {
-		t.Fatalf("expected store=true, got %v", body["store"])
+	if body["store"] != false {
+		t.Fatalf("expected store=false (the chatgpt.com/backend-api/codex backend rejects store=true), got %v", body["store"])
 	}
 	input, ok := body["input"].([]any)
 	if !ok || len(input) != 2 {
@@ -3549,12 +3623,14 @@ func TestBuildCodexRequestBody_FreshTurnSendsFullHistory(t *testing.T) {
 	}
 }
 
-// TestBuildCodexRequestBody_ContinuationSendsOnlyNewMessages guards the
-// actual fix: with a valid PreviousResponseID/PreviousResponseMessageCount,
-// only the messages appended since that response are sent, alongside
-// previous_response_id - not the whole growing history. This is the change
-// that closes out the browse sub-agent incident (one turn resending its
-// entire, ever-growing message history on every internal iteration).
+// TestBuildCodexRequestBody_ContinuationSendsOnlyNewMessages exercises
+// buildCodexRequestBody's message-slicing logic in isolation given an
+// explicit PreviousResponseID. The engine itself never populates this field
+// anymore (recordPreviousResponse is a permanent no-op - see loop.go and
+// engine_test.go's TestRecordPreviousResponseNeverCapturesForCodex), since
+// "store" must always be false and previous_response_id can only reference a
+// stored response. This test just confirms the slicing behavior still works
+// correctly if that field were ever set some other way.
 func TestBuildCodexRequestBody_ContinuationSendsOnlyNewMessages(t *testing.T) {
 	client := &Client{}
 	req := types.APIRequest{
@@ -3580,8 +3656,8 @@ func TestBuildCodexRequestBody_ContinuationSendsOnlyNewMessages(t *testing.T) {
 	if body["previous_response_id"] != "resp-1" {
 		t.Fatalf("expected previous_response_id=resp-1, got %v", body["previous_response_id"])
 	}
-	if body["store"] != true {
-		t.Fatalf("expected store=true, got %v", body["store"])
+	if body["store"] != false {
+		t.Fatalf("expected store=false (the chatgpt.com/backend-api/codex backend rejects store=true), got %v", body["store"])
 	}
 	input, ok := body["input"].([]any)
 	if !ok || len(input) != 2 {

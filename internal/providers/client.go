@@ -228,8 +228,33 @@ func (c *Client) Config() *Config {
 	return c.providerConfig
 }
 
+// resolveRequestModel rewrites req.Model.Model through the provider's
+// ModelAliasMapping (e.g. "default" -> "gpt-5.6-sol") if one is configured.
+// This must run before the request is used for anything - wire request
+// building, response model attribution, monitoring - so callers apply it
+// once at the top of each public entry point rather than deep inside the
+// send path, where a by-value req copy wouldn't propagate the resolved
+// name back to the caller's own local req (used for response decoding).
+//
+// Previously nothing called Config.ResolveModel for the actual outgoing
+// request: it was only ever invoked inside GetEndpoint, and only mattered
+// for providers whose endpoint URL embeds the model (Gemini). Every
+// OpenAI-compatible provider and Codex put the model in the JSON body via
+// ModelIdentifier.ProviderModelName(), which has no access to alias
+// mapping (see its own "TODO: wire up provider config for model
+// resolution" comment) - so a raw alias like "default" was sent to the
+// real API verbatim and rejected. Confirmed live against a real Codex
+// account: {"detail":"The 'default' model is not supported..."}.
+func (c *Client) resolveRequestModel(req types.APIRequest) types.APIRequest {
+	if c.providerConfig != nil {
+		req.Model.Model = c.providerConfig.ResolveModel(req.Model.Model)
+	}
+	return req
+}
+
 // CreateMessage sends a non-streaming message creation request
 func (c *Client) CreateMessage(ctx context.Context, req types.APIRequest) (*types.APIResponse, error) {
+	req = c.resolveRequestModel(req)
 	start := time.Now()
 
 	// Record API request in monitoring
@@ -301,6 +326,7 @@ func (c *Client) CreateMessageStreamResult(ctx context.Context, req types.APIReq
 // CreateMessageStreamResultWithCallback consumes the provider stream, emits
 // normalized chunks to the callback, and returns a canonical aggregated response.
 func (c *Client) CreateMessageStreamResultWithCallback(ctx context.Context, req types.APIRequest, onChunk func(types.APIResponseChunk)) (*types.APIStreamResult, error) {
+	req = c.resolveRequestModel(req)
 	req.Stream = true
 	return c.resolveAdapter().createStreamResult(c, ctx, req, onChunk)
 }
@@ -350,6 +376,7 @@ func emitStreamChunk(onChunk func(types.APIResponseChunk), chunk types.APIRespon
 
 // CreateMessageStream sends a streaming message creation request
 func (c *Client) CreateMessageStream(ctx context.Context, req types.APIRequest) (<-chan types.APIResponseChunk, error) {
+	req = c.resolveRequestModel(req)
 	// Force streaming for this method
 	req.Stream = true
 
