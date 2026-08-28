@@ -37,10 +37,7 @@ func TestProviderAdapterDispatch(t *testing.T) {
 		{"foundry", types.APIProviderFoundry, "claude-x", "/v1/messages", [2]string{"api-key", "k"}, "messages"},
 		{"openai", types.APIProviderOpenAI, "gpt", "/chat/completions", [2]string{"Authorization", "Bearer k"}, "messages"},
 		{"zai", types.APIProviderZAi, "glm", "/chat/completions", [2]string{"x-api-key", "k"}, "messages"},
-		// MiniMax's BaseURL is already the full ChatCompletion v2 endpoint
-		// path, unlike the other OpenAI-compatible providers — nothing gets
-		// appended, so the endpoint is exactly the configured BaseURL.
-		{"minimax", types.APIProviderMiniMax, "mm", baseURL, [2]string{"Authorization", "Bearer k"}, "messages"},
+		{"minimax", types.APIProviderMiniMax, "mm", "/chat/completions", [2]string{"Authorization", "Bearer k"}, "messages"},
 		{"openrouter", types.APIProviderOpenRouter, "or", "/chat/completions", [2]string{"Authorization", "Bearer k"}, "messages"},
 		{"mistral", types.APIProviderMistral, "mi", "/chat/completions", [2]string{"Authorization", "Bearer k"}, "messages"},
 		{"gemini", types.APIProviderGemini, "gemini-x", ":generateContent", [2]string{"Authorization", "Bearer k"}, "contents"},
@@ -97,14 +94,19 @@ func TestProviderAdapterDispatch(t *testing.T) {
 	}
 }
 
-// TestMiniMaxEndpointDoesNotDoubleAppendPath verifies the fix for a malformed
-// MiniMax URL: its default BaseURL is already the full ChatCompletion v2
-// endpoint path, not an API root like the other OpenAI-compatible providers,
-// so GetEndpoint must not append "/chat/completions" on top of it.
-func TestMiniMaxEndpointDoesNotDoubleAppendPath(t *testing.T) {
+// TestMiniMaxEndpointUsesCurrentDomainAndPath verifies MiniMax's default
+// endpoint against its real, currently-documented API: api.minimax.io (not
+// api.minimax.chat, which isn't a real MiniMax domain), with the standard
+// OpenAI-compatible /v1/chat/completions path (not the deprecated
+// /v1/text/chatcompletion_v2). An earlier version of this test locked in a
+// narrower fix for a different bug (GetEndpoint double-appending
+// "/chat/completions" onto what was then treated as an already-complete
+// endpoint) — that special case is gone now that MiniMax's BaseURL is a real
+// API root like every other OpenAI-compatible provider here.
+func TestMiniMaxEndpointUsesCurrentDomainAndPath(t *testing.T) {
 	config := &Config{Provider: types.APIProviderMiniMax, APIKey: "k"}
 	got := config.GetEndpoint("MiniMax-M2.7")
-	want := "https://api.minimax.chat/v1/text/chatcompletion_v2"
+	want := "https://api.minimax.io/v1/chat/completions"
 	if got != want {
 		t.Fatalf("GetEndpoint() = %q, want %q", got, want)
 	}
@@ -156,6 +158,18 @@ func TestAdapterForProviderWorkersAIUsesOpenAICompat(t *testing.T) {
 // provider-picker UIs) but no config.go Config, no adapter mapping (silently
 // fell through to the Anthropic wire format), and no env var mapping -
 // selecting it would have failed outright.
+// TestDefaultBaseURL_MiniMaxEnablesModelSync verifies the fix for MiniMax
+// model sync being unconditionally broken: DefaultBaseURL had no case for it
+// (fell to the empty-string default), so FetchModels built "" + "/v1/models"
+// whenever no explicit base URL was supplied. Now that MiniMax's real API
+// root (api.minimax.io) supports the standard OpenAI-compatible /v1/models
+// discovery endpoint, this returns a real, working base.
+func TestDefaultBaseURL_MiniMaxEnablesModelSync(t *testing.T) {
+	if got := DefaultBaseURL("minimax"); got != "https://api.minimax.io" {
+		t.Errorf(`DefaultBaseURL("minimax") = %q, want the international https://api.minimax.io endpoint`, got)
+	}
+}
+
 func TestKimiProviderConfig(t *testing.T) {
 	cfg := GetProviderConfig(types.APIProviderKimi)
 	if cfg == nil {

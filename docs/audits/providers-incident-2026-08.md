@@ -185,6 +185,25 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
             "Anthropic-compatible" alors qu'il route réellement via
             `openAICompatAdapter` (`adapter.go:54`) ✅ FIXÉ — description
             corrigée en "OpenAI-compatible chat completions"
+      - [x] **Correction (28/08) — le fix ci-dessus reposait lui-même sur un
+            domaine et un endpoint dépréciés.** Vérifié directement sur
+            `platform.minimax.io` (3 pages officielles, cohérentes) :
+            `api.minimax.chat` n'est **pas un domaine MiniMax réel** — le
+            vrai domaine international est `api.minimax.io` (Chine
+            continentale : `api.minimaxi.com`) — et `/v1/text/chatcompletion_v2`
+            est documenté **déprécié**, remplacé par le
+            `/v1/chat/completions` standard OpenAI-compatible. Le fix de
+            double-suffixe ci-dessus était réel, mais l'endpoint corrigé
+            restait quand même sur un domaine/chemin obsolète — MiniMax
+            était probablement encore cassé après ce fix, juste
+            différemment. Redressé : `BaseURL` → `https://api.minimax.io/v1`
+            (vraie racine d'API), le cas spécial `GetEndpoint` supprimé —
+            MiniMax rejoint le groupe générique `+"/chat/completions"`
+            comme les 7 autres providers OpenAI-compatibles. Ça débloque
+            aussi la synchronisation de modèles (voir plus bas). Tests :
+            `TestMiniMaxEndpointUsesCurrentDomainAndPath` (remplace
+            `TestMiniMaxEndpointDoesNotDoubleAppendPath`, dont la prémisse
+            n'est plus valide).
 
 ---
 
@@ -226,10 +245,23 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
       `TestBuildRequestBody_FoundrySystemPromptBlocksWithCache`.
 
 - [ ] **Synchronisation de modèles cassée pour MiniMax et WorkersAI**
-      - [ ] `internal/providers/fetch.go:71-97` — `DefaultBaseURL()` n'a pas
-            de cas pour ces deux providers, tombe sur `default: return ""`
-      - [ ] Sans URL de base explicite fournie par l'appelant, `FetchModels`
-            construit `"" + "/v1/models"` → découverte de modèles cassée
+      - [x] **MiniMax ✅ FIXÉ (28/08)** — `internal/providers/fetch.go`'s
+            `DefaultBaseURL()` a maintenant un cas `"minimax"` →
+            `https://api.minimax.io` (sans `/v1`, même convention que les
+            autres entrées). Fonctionne maintenant que MiniMax expose un
+            vrai `/v1/models` sous ce domaine (vérifié sur
+            `platform.minimax.io`, lié à la correction de domaine/endpoint
+            ci-dessus). Test : `TestDefaultBaseURL_MiniMaxEnablesModelSync`.
+      - [ ] **WorkersAI — toujours cassé, vérifié non-réparable simplement.**
+            La page OpenAI-compatible officielle de Cloudflare
+            (`developers.cloudflare.com/workers-ai`) ne documente que
+            `/v1/chat/completions` et `/v1/embeddings` — pas de
+            `/v1/models`. `fetchOpenAICompatModels`'s découverte générique
+            ne peut donc pas fonctionner pour WorkersAI même avec le bon
+            domaine. Cloudflare a un endpoint de recherche de modèles
+            séparé (`/ai/models/search`, forme non-OpenAI, non vérifiée
+            ici) qui nécessiterait son propre chemin dans `fetch.go` — pas
+            un correctif d'une ligne, laissé de côté.
 
 *(L'item DeepSeek qui vivait ici — "fenêtres de contexte probablement
 inversées" — est résolu, avec un scope bien plus large que prévu ; voir

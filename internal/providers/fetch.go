@@ -91,6 +91,10 @@ func DefaultBaseURL(providerName string) string {
 		// mainland deployment with its own accounts/billing; keys aren't
 		// interchangeable between the two.
 		return "https://api.moonshot.ai"
+	case "minimax":
+		// International endpoint - api.minimaxi.com is the separate mainland
+		// China deployment; keys aren't interchangeable between the two.
+		return "https://api.minimax.io"
 	default:
 		return ""
 	}
