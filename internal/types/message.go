@@ -135,6 +135,14 @@ type TokenUsage struct {
 	// CacheCreationInputTokens is the number of tokens written into the
 	// Anthropic prompt cache (billed at a 25% premium on first write).
 	CacheCreationInputTokens int `json:"cache_creation_input_tokens,omitempty"`
+
+	// ReasoningTokens is hidden chain-of-thought token usage billed as part
+	// of OutputTokens by reasoning models (OpenAI Responses API style:
+	// output_tokens_details.reasoning_tokens). Without this, a reasoning
+	// model's large InputTokens:OutputTokens ratio is unexplainable from
+	// telemetry alone - it's impossible to tell whether a lopsided ratio
+	// comes from resent context, a cache miss, or genuine hidden reasoning.
+	ReasoningTokens int `json:"reasoning_tokens,omitempty"`
 }
 
 // StopReason constants
