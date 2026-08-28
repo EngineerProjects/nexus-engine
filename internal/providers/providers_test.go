@@ -3089,3 +3089,111 @@ func TestParseCodexSSEStreamCapturesCachedAndReasoningTokens(t *testing.T) {
 		t.Fatalf("expected ReasoningTokens=30, got %d", usage.ReasoningTokens)
 	}
 }
+
+// TestBuildCodexRequestBody_FreshTurnSendsFullHistory guards the default,
+// no-continuation-hint path: the whole message history is sent, no
+// previous_response_id, but the response is still always stored (see
+// buildCodexRequestBody's doc comment) so it can anchor the next
+// iteration's continuation.
+func TestBuildCodexRequestBody_FreshTurnSendsFullHistory(t *testing.T) {
+	client := &Client{}
+	req := types.APIRequest{
+		Model: types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "gpt-5.6-sol"},
+		Messages: []types.Message{
+			types.UserMessage("msg-1", "first"),
+			types.UserMessage("msg-2", "second"),
+		},
+	}
+
+	reader, err := client.buildCodexRequestBody(req)
+	if err != nil {
+		t.Fatalf("buildCodexRequestBody: %v", err)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(reader).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+
+	if _, ok := body["previous_response_id"]; ok {
+		t.Fatal("expected no previous_response_id on a fresh turn")
+	}
+	if body["store"] != true {
+		t.Fatalf("expected store=true, got %v", body["store"])
+	}
+	input, ok := body["input"].([]any)
+	if !ok || len(input) != 2 {
+		t.Fatalf("expected the full 2-message history in input, got %#v", body["input"])
+	}
+}
+
+// TestBuildCodexRequestBody_ContinuationSendsOnlyNewMessages guards the
+// actual fix: with a valid PreviousResponseID/PreviousResponseMessageCount,
+// only the messages appended since that response are sent, alongside
+// previous_response_id - not the whole growing history. This is the change
+// that closes out the browse sub-agent incident (one turn resending its
+// entire, ever-growing message history on every internal iteration).
+func TestBuildCodexRequestBody_ContinuationSendsOnlyNewMessages(t *testing.T) {
+	client := &Client{}
+	req := types.APIRequest{
+		Model: types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "gpt-5.6-sol"},
+		Messages: []types.Message{
+			types.UserMessage("msg-1", "first"),
+			types.AssistantMessage("msg-2", []types.ContentBlock{types.TextContent{Text: "reply"}}),
+			types.UserMessage("msg-3", "third"),
+		},
+		PreviousResponseID:           "resp-1",
+		PreviousResponseMessageCount: 1,
+	}
+
+	reader, err := client.buildCodexRequestBody(req)
+	if err != nil {
+		t.Fatalf("buildCodexRequestBody: %v", err)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(reader).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+
+	if body["previous_response_id"] != "resp-1" {
+		t.Fatalf("expected previous_response_id=resp-1, got %v", body["previous_response_id"])
+	}
+	if body["store"] != true {
+		t.Fatalf("expected store=true, got %v", body["store"])
+	}
+	input, ok := body["input"].([]any)
+	if !ok || len(input) != 2 {
+		t.Fatalf("expected only the 2 messages appended since PreviousResponseMessageCount, got %#v", body["input"])
+	}
+}
+
+// TestBuildCodexRequestBody_StaleMessageCountFallsBackToFullHistory guards
+// the safety fallback: if PreviousResponseMessageCount is somehow larger
+// than the current message count (should never happen given the engine's
+// own invalidation, but must never panic on a negative slice), the full
+// history is sent instead of trusting a clearly-inconsistent hint.
+func TestBuildCodexRequestBody_StaleMessageCountFallsBackToFullHistory(t *testing.T) {
+	client := &Client{}
+	req := types.APIRequest{
+		Model:                        types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "gpt-5.6-sol"},
+		Messages:                     []types.Message{types.UserMessage("msg-1", "only one message")},
+		PreviousResponseID:           "resp-stale",
+		PreviousResponseMessageCount: 5,
+	}
+
+	reader, err := client.buildCodexRequestBody(req)
+	if err != nil {
+		t.Fatalf("buildCodexRequestBody: %v", err)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(reader).Decode(&body); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+
+	if _, ok := body["previous_response_id"]; ok {
+		t.Fatal("expected previous_response_id to be omitted when the message count is inconsistent")
+	}
+	input, ok := body["input"].([]any)
+	if !ok || len(input) != 1 {
+		t.Fatalf("expected the full 1-message history, got %#v", body["input"])
+	}
+}

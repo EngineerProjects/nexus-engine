@@ -24,13 +24,35 @@ import (
 //   - SSE events: response.output_text.delta, response.output_item.done, response.completed, response.failed
 
 func (c *Client) buildCodexRequestBody(req types.APIRequest) (io.Reader, error) {
+	// Always store the response server-side - not just on calls that reuse
+	// a prior reference - so any call can become the anchor the *next*
+	// iteration continues from (see engine/loop.go's recordPreviousResponse
+	// and buildAPIRequest). This matches how the real Codex CLI this
+	// integration impersonates (see the codex_cli_rs User-Agent below)
+	// actually operates for multi-turn conversations; the previous
+	// hardcoded "store": false meant every internal iteration of a single
+	// turn's tool-use loop resent the entire, ever-growing message history
+	// from scratch - a real contributor to a production incident where one
+	// browse sub-agent turn accumulated 107k input tokens over 36+ minutes.
+	previousResponseID := ""
+	if req.PreviousResponseID != "" && req.PreviousResponseMessageCount <= len(req.Messages) {
+		// Only the messages appended since that stored response need to be
+		// sent - the Responses API reconstructs the rest server-side from
+		// previous_response_id.
+		previousResponseID = req.PreviousResponseID
+		req.Messages = req.Messages[req.PreviousResponseMessageCount:]
+	}
+
 	input := c.buildCodexInput(req)
 
 	body := map[string]any{
 		"model":  req.Model.ProviderModelName(),
 		"input":  input,
 		"stream": true,
-		"store":  false,
+		"store":  true,
+	}
+	if previousResponseID != "" {
+		body["previous_response_id"] = previousResponseID
 	}
 
 	systemPrompt := req.SystemPrompt
