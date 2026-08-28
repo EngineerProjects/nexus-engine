@@ -183,6 +183,12 @@ func (cb *CircuitBreaker) beginRequest() bool {
 // ExecuteWithTimeout runs the given function with timeout and circuit breaker protection.
 // The context passed to fn carries the configured CallTimeout deadline; fn must respect
 // ctx.Done() to guarantee no goroutine leaks when the deadline fires.
+//
+// Not currently wired into any provider's streaming call path. If it ever is,
+// CallTimeout must cover the whole streamed response body, not just headers —
+// the default (30s) would cut off a long-running LLM stream mid-response, the
+// same class of bug a too-short http.Client.Timeout caused for Codex (see
+// getCodexHTTPClient's doc comment in client.go).
 func (cb *CircuitBreaker) ExecuteWithTimeout(ctx context.Context, fn func(context.Context) error) error {
 	if !cb.beginRequest() {
 		return &CircuitBreakerOpenError{State: cb.State()}

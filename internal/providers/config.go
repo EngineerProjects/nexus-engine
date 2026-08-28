@@ -305,59 +305,6 @@ func (c *Config) GetBaseURL() string {
 	return defaultBaseURLs[c.Provider]
 }
 
-func (c *Config) BuildAuthHeaders() map[string]string {
-	headers := make(map[string]string)
-
-	switch c.Provider {
-	case types.APIProviderAnthropic, types.APIProviderBedrock, types.APIProviderVertex:
-		if c.APIKey != "" {
-			headers["x-api-key"] = c.APIKey
-		}
-		headers["anthropic-version"] = "2023-06-01"
-
-	case types.APIProviderOpenAI, types.APIProviderGemini, types.APIProviderOpenRouter, types.APIProviderMiniMax, types.APIProviderMistral, types.APIProviderKimi, types.APIProviderDeepSeek, types.APIProviderOpenCode:
-		if c.APIKey != "" {
-			headers["Authorization"] = "Bearer " + c.APIKey
-		}
-
-	case types.APIProviderFoundry:
-		if c.APIKey != "" {
-			headers["api-key"] = c.APIKey
-		}
-		if c.Region != "" {
-			headers["Anthropic-Foundry-Resource-Id"] = c.Region
-		}
-
-	case types.APIProviderOllama:
-		if c.APIKey != "" {
-			headers["Authorization"] = "Bearer " + c.APIKey
-		}
-
-	case types.APIProviderZAi:
-		if c.APIKey != "" {
-			headers["x-api-key"] = c.APIKey
-		}
-		headers["Content-Type"] = "application/json"
-		headers["Accept-Language"] = "en-US,en"
-
-	case types.APIProviderWorkersAI:
-		if c.APIKey != "" {
-			headers["Authorization"] = "Bearer " + c.APIKey
-		}
-
-	case types.APIProviderCodex:
-		if c.APIKey != "" {
-			headers["Authorization"] = "Bearer " + c.APIKey
-		}
-	}
-
-	for k, v := range c.CustomHeaders {
-		headers[k] = v
-	}
-
-	return headers
-}
-
 func (c *Config) GetEndpoint(model string) string {
 	resolvedModel := c.ResolveModel(model)
 
