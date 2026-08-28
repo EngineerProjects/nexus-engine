@@ -3054,3 +3054,38 @@ func TestGetCodexHTTPClientHasNoBodyCoveringTimeout(t *testing.T) {
 		t.Fatal("expected the Cloudflare cookie jar to still be attached")
 	}
 }
+
+// TestParseCodexSSEStreamCapturesCachedAndReasoningTokens guards against
+// regressing to silently dropping input_tokens_details.cached_tokens and
+// output_tokens_details.reasoning_tokens from a Codex response.completed
+// event's usage object (Responses API shape). Without these, a reasoning
+// model's lopsided input:output token ratio is unexplainable from telemetry
+// alone - there was previously no way to tell whether a given turn's ratio
+// came from resent context, a cache miss, or genuine hidden reasoning.
+func TestParseCodexSSEStreamCapturesCachedAndReasoningTokens(t *testing.T) {
+	sse := "event: response.completed\n" +
+		`data: {"type":"response.completed","response":{"id":"resp-1","usage":{` +
+		`"input_tokens":1000,"output_tokens":50,` +
+		`"input_tokens_details":{"cached_tokens":800},` +
+		`"output_tokens_details":{"reasoning_tokens":30}}}}` + "\n\n"
+
+	result, err := parseCodexSSEStream(
+		context.Background(),
+		strings.NewReader(sse),
+		types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "gpt-5.6-sol"},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("parseCodexSSEStream: %v", err)
+	}
+	usage := result.Response.Usage
+	if usage.InputTokens != 1000 || usage.OutputTokens != 50 {
+		t.Fatalf("expected input/output tokens 1000/50, got %d/%d", usage.InputTokens, usage.OutputTokens)
+	}
+	if usage.CachedTokens != 800 {
+		t.Fatalf("expected CachedTokens=800, got %d", usage.CachedTokens)
+	}
+	if usage.ReasoningTokens != 30 {
+		t.Fatalf("expected ReasoningTokens=30, got %d", usage.ReasoningTokens)
+	}
+}

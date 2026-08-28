@@ -32,7 +32,7 @@ Returns immediately with a stable ` + "`agent_id`" + ` you can use with ` + "`wa
 4. Call ` + "`close_agent`" + ` if you want to terminate the agent early
 
 ## agent_type
-Use one of the built-in agent types: ` + "`general-purpose`" + `, ` + "`explore`" + `, ` + "`plan`" + `. Leave empty for ` + "`general-purpose`" + `.`
+Use one of the built-in agent types: ` + "`general-purpose`" + `, ` + "`explore`" + `, ` + "`plan`" + `, ` + "`browse`" + ` (deep read-only web/multi-source research), ` + "`verify`" + `. Leave empty for ` + "`general-purpose`" + `.`
 
 // SpawnAgentTool launches a sub-agent asynchronously and returns immediately.
 // Mirrors Codex's CollabAgentTool = "spawnAgent" + CollabAgentSpawnBeginEvent / CollabAgentSpawnEndEvent.
@@ -68,8 +68,8 @@ func (t *SpawnAgentTool) Definition() tool.Definition {
 				},
 				"agent_type": map[string]any{
 					"type":        "string",
-					"description": "Agent type: 'general-purpose' (default), 'explore', or 'plan'.",
-					"enum":        []string{"general-purpose", "explore", "plan"},
+					"description": "Agent type: 'general-purpose' (default), 'explore', 'plan', 'browse' (deep read-only web/multi-source research), or 'verify'.",
+					"enum":        []string{"general-purpose", "explore", "plan", "browse", "verify"},
 				},
 				"role": map[string]any{
 					"type":        "string",
