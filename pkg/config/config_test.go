@@ -276,7 +276,7 @@ func TestProviderForModelUsesCatalog(t *testing.T) {
 	if provider := ProviderForModel("@cf/meta/llama-3.1-70b-instruct"); provider != sdk.APIProviderWorkersAI {
 		t.Fatalf("unexpected provider: got %q", provider)
 	}
-	if provider := ProviderForModel("deepseek-chat"); provider != sdk.APIProviderDeepSeek {
+	if provider := ProviderForModel("deepseek-v4-flash"); provider != sdk.APIProviderDeepSeek {
 		t.Fatalf("unexpected provider: got %q", provider)
 	}
 	if provider := ProviderForModel("claude-sonnet-4"); provider != sdk.APIProviderOpenCode {
@@ -328,5 +328,46 @@ func TestValidateProviderSetup(t *testing.T) {
 	err = ValidateProviderSetup(Config{APIKey: "secret"}, sdk.APIProviderOpenAI)
 	if err != nil {
 		t.Fatalf("unexpected validation error: %v", err)
+	}
+}
+
+// TestValidateProviderSetup_WorkersAIRequiresAccountID verifies the fix for
+// WorkersAI's setup validation previously accepting an API key alone: nothing
+// modeled the Cloudflare account id the real endpoint requires, so a config
+// missing it would only fail later with an opaque malformed-URL error deep in
+// the request path instead of a clear setup-time message.
+func TestValidateProviderSetup_WorkersAIRequiresAccountID(t *testing.T) {
+	if err := ValidateProviderSetup(Config{APIKey: "secret"}, sdk.APIProviderWorkersAI); err == nil {
+		t.Fatal("expected validation error when account id is missing")
+	}
+
+	err := ValidateProviderSetup(Config{APIKey: "secret", ProviderProjectID: "acct-123"}, sdk.APIProviderWorkersAI)
+	if err != nil {
+		t.Fatalf("unexpected validation error once account id is set: %v", err)
+	}
+}
+
+// TestWorkersAISetupFieldsIncludeAccountID verifies the CLI setup wizard
+// actually surfaces the account id field for WorkersAI, reusing the same
+// provider_project_id slot Vertex uses for its GCP project id.
+func TestWorkersAISetupFieldsIncludeAccountID(t *testing.T) {
+	info, ok := GetProviderInfo(sdk.APIProviderWorkersAI)
+	if !ok {
+		t.Fatal("expected WorkersAI provider info")
+	}
+	found := false
+	for _, field := range info.SetupFields {
+		if field.Key == "provider_project_id" {
+			found = true
+			if field.EnvVar != "CLOUDFLARE_ACCOUNT_ID" {
+				t.Errorf("account id field EnvVar = %q, want CLOUDFLARE_ACCOUNT_ID", field.EnvVar)
+			}
+			if !field.Required {
+				t.Error("account id field should be required")
+			}
+		}
+	}
+	if !found {
+		t.Error("expected a provider_project_id setup field for WorkersAI")
 	}
 }

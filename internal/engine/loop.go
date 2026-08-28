@@ -880,18 +880,19 @@ func (l *Loop) buildAPIRequest(state *MutableState, req RunRequest, model types.
 	return apiReq
 }
 
-// recordPreviousResponse updates state's continuation hint after a
-// successful model call. A Codex response records its own ID + the message
-// count it was generated against, so the next iteration can send only the
-// delta. Any other provider answering invalidates whatever was recorded,
-// since the growing Messages list has now diverged from what the stored
-// Codex response chain actually knows about.
-func (l *Loop) recordPreviousResponse(state *MutableState, model types.ModelIdentifier, resp *types.APIResponse) {
-	if model.Provider == types.APIProviderCodex && resp != nil && resp.ID != "" {
-		state.PreviousResponseID = resp.ID
-		state.PreviousResponseMessageCount = len(state.Messages)
-		return
-	}
+// recordPreviousResponse used to update state's continuation hint after a
+// successful Codex call, so the next iteration could send only the message
+// delta via previous_response_id instead of the whole growing history.
+// Disabled: confirmed live against a real ChatGPT-account session, the
+// chatgpt.com/backend-api/codex backend requires "store": false on every
+// request (see client_codex.go's buildCodexRequestBody), and
+// previous_response_id can only ever reference a response the API actually
+// stored - so this continuation hint could never be validly redeemed
+// server-side to begin with. Left as a no-op (never populates
+// state.PreviousResponseID) rather than removing the surrounding
+// plumbing (APIRequest/MutableState fields, buildAPIRequest's read side),
+// in case a store-compatible path for this backend is found later.
+func (l *Loop) recordPreviousResponse(state *MutableState, _ types.ModelIdentifier, _ *types.APIResponse) {
 	state.PreviousResponseID = ""
 	state.PreviousResponseMessageCount = 0
 }
@@ -1231,10 +1232,27 @@ func (l *Loop) isRecoverableError(err error) bool {
 		return false
 	}
 	if engineErr, ok := err.(*types.EngineError); ok {
-		return engineErr.IsRetryable()
+		if engineErr.IsRetryable() {
+			return true
+		}
+		// Every provider's stream parser wraps body-read/decode I/O errors as
+		// ErrCodeAPIResponse, whether the cause was a transient dropped
+		// connection or a genuinely malformed payload. IsRetryable() treats
+		// that code as permanent, so a mid-stream socket death (the incident
+		// that motivated this check) was never retried. Fall through to the
+		// structured network classifier on the wrapped cause instead of
+		// trusting the generic code alone.
+		if engineErr.Code == types.ErrCodeAPIResponse && engineErr.Err != nil {
+			return l.isRecoverableNetworkError(engineErr.Err)
+		}
+		return false
 	}
 	// For non-EngineErrors (network errors, etc.) use the structured classifier
 	// rather than brittle string matching.
+	return l.isRecoverableNetworkError(err)
+}
+
+func (l *Loop) isRecoverableNetworkError(err error) bool {
 	switch providerretry.ClassifyHTTPError(err, 0) {
 	case providerretry.RetryClassificationClientError,
 		providerretry.RetryClassificationAuthError:

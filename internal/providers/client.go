@@ -44,6 +44,17 @@ func getCodexHTTPClient() *http.Client {
 	return client
 }
 
+// defaultResponseHeaderTimeout bounds how long we wait for the first response
+// byte (headers) from a remote API before giving up on the connection.
+const defaultResponseHeaderTimeout = 60 * time.Second
+
+// ollamaResponseHeaderTimeout is longer than the default: unlike a remote API
+// that's already warm and serving, a local Ollama request can legitimately
+// block behind loading a large model into memory (disk read, or CPU-only
+// inference startup) before it emits a single byte, which routinely exceeds
+// 60s on constrained hardware.
+const ollamaResponseHeaderTimeout = 5 * time.Minute
+
 // newStreamingHTTPClient returns an http.Client suitable for long-running LLM
 // streaming responses. The key difference from a standard client is that
 // http.Client.Timeout is NOT set — that field applies to the entire request
@@ -57,10 +68,14 @@ func getCodexHTTPClient() *http.Client {
 // The stream body itself is bounded only by context cancellation (user ctrl+c,
 // session close, or the engine's own cancellation logic).
 func newStreamingHTTPClient() *http.Client {
+	return newStreamingHTTPClientWithHeaderTimeout(defaultResponseHeaderTimeout)
+}
+
+func newStreamingHTTPClientWithHeaderTimeout(responseHeaderTimeout time.Duration) *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
 			TLSHandshakeTimeout:   15 * time.Second,
-			ResponseHeaderTimeout: 60 * time.Second,
+			ResponseHeaderTimeout: responseHeaderTimeout,
 			ExpectContinueTimeout: 1 * time.Second,
 			MaxIdleConns:          20,
 			IdleConnTimeout:       90 * time.Second,
@@ -111,6 +126,21 @@ func (c *Client) resolveAdapter() providerAdapter {
 	return adapterForProvider(c.provider)
 }
 
+// httpClientForProvider returns the streaming http.Client appropriate for the
+// given provider: Codex needs the Cloudflare cookie jar, Ollama needs a longer
+// ResponseHeaderTimeout to tolerate local model load time, everything else
+// gets the default streaming client.
+func httpClientForProvider(provider types.APIProvider) *http.Client {
+	switch provider {
+	case types.APIProviderCodex:
+		return getCodexHTTPClient()
+	case types.APIProviderOllama:
+		return newStreamingHTTPClientWithHeaderTimeout(ollamaResponseHeaderTimeout)
+	default:
+		return newStreamingHTTPClient()
+	}
+}
+
 // NewClient creates a new API client
 func NewClient(apiKey string, providerType types.APIProvider) *Client {
 	// Create provider config for model resolution
@@ -120,12 +150,7 @@ func NewClient(apiKey string, providerType types.APIProvider) *Client {
 	}
 	providerConfig.APIKey = apiKey
 
-	var httpClient *http.Client
-	if providerType == types.APIProviderCodex {
-		httpClient = getCodexHTTPClient()
-	} else {
-		httpClient = newStreamingHTTPClient()
-	}
+	httpClient := httpClientForProvider(providerType)
 
 	return &Client{
 		apiKey:         apiKey,
@@ -170,12 +195,7 @@ func newClientWithConfig(apiKey string, config *Config) *Client {
 		baseURL = "https://api.anthropic.com"
 	}
 
-	var httpClient *http.Client
-	if config.Provider == types.APIProviderCodex {
-		httpClient = getCodexHTTPClient()
-	} else {
-		httpClient = newStreamingHTTPClient()
-	}
+	httpClient := httpClientForProvider(config.Provider)
 
 	return &Client{
 		apiKey:         apiKey,
@@ -208,8 +228,33 @@ func (c *Client) Config() *Config {
 	return c.providerConfig
 }
 
+// resolveRequestModel rewrites req.Model.Model through the provider's
+// ModelAliasMapping (e.g. "default" -> "gpt-5.6-sol") if one is configured.
+// This must run before the request is used for anything - wire request
+// building, response model attribution, monitoring - so callers apply it
+// once at the top of each public entry point rather than deep inside the
+// send path, where a by-value req copy wouldn't propagate the resolved
+// name back to the caller's own local req (used for response decoding).
+//
+// Previously nothing called Config.ResolveModel for the actual outgoing
+// request: it was only ever invoked inside GetEndpoint, and only mattered
+// for providers whose endpoint URL embeds the model (Gemini). Every
+// OpenAI-compatible provider and Codex put the model in the JSON body via
+// ModelIdentifier.ProviderModelName(), which has no access to alias
+// mapping (see its own "TODO: wire up provider config for model
+// resolution" comment) - so a raw alias like "default" was sent to the
+// real API verbatim and rejected. Confirmed live against a real Codex
+// account: {"detail":"The 'default' model is not supported..."}.
+func (c *Client) resolveRequestModel(req types.APIRequest) types.APIRequest {
+	if c.providerConfig != nil {
+		req.Model.Model = c.providerConfig.ResolveModel(req.Model.Model)
+	}
+	return req
+}
+
 // CreateMessage sends a non-streaming message creation request
 func (c *Client) CreateMessage(ctx context.Context, req types.APIRequest) (*types.APIResponse, error) {
+	req = c.resolveRequestModel(req)
 	start := time.Now()
 
 	// Record API request in monitoring
@@ -281,6 +326,7 @@ func (c *Client) CreateMessageStreamResult(ctx context.Context, req types.APIReq
 // CreateMessageStreamResultWithCallback consumes the provider stream, emits
 // normalized chunks to the callback, and returns a canonical aggregated response.
 func (c *Client) CreateMessageStreamResultWithCallback(ctx context.Context, req types.APIRequest, onChunk func(types.APIResponseChunk)) (*types.APIStreamResult, error) {
+	req = c.resolveRequestModel(req)
 	req.Stream = true
 	return c.resolveAdapter().createStreamResult(c, ctx, req, onChunk)
 }
@@ -330,6 +376,7 @@ func emitStreamChunk(onChunk func(types.APIResponseChunk), chunk types.APIRespon
 
 // CreateMessageStream sends a streaming message creation request
 func (c *Client) CreateMessageStream(ctx context.Context, req types.APIRequest) (<-chan types.APIResponseChunk, error) {
+	req = c.resolveRequestModel(req)
 	// Force streaming for this method
 	req.Stream = true
 
@@ -455,6 +502,60 @@ func anthropicToolsWithCacheControl(tools []types.APIToolDefinition, provider ty
 	return out
 }
 
+// anthropicMessagesWithCacheControl returns a copy of messages with
+// cache_control set on the last cacheable content block of the last message,
+// for Anthropic-compatible providers. Anthropic caches all content up to the
+// last cache_control breakpoint, so marking the tail of the growing
+// conversation/tool-result history — not just the system prompt and tool
+// definitions, which were the only things previously ever cached — lets a
+// long agentic loop reuse the cached prefix on every subsequent turn instead
+// of reprocessing the whole accumulated history from scratch each time.
+//
+// Only TextContent and ToolResultContent carry a CacheControl field (the two
+// block types that realistically end a request: the first user turn, or a
+// tool-result turn after the model calls tools). If the last message's last
+// block is neither, this is a no-op for that call — still correct, just not
+// cached until the tail naturally becomes cacheable again.
+// For other providers the input slice is returned as-is (no copy, no mutation).
+func anthropicMessagesWithCacheControl(messages []types.Message, provider types.APIProvider) []types.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+	if provider != types.APIProviderAnthropic && provider != types.APIProviderFoundry {
+		return messages
+	}
+
+	lastMsgIdx := len(messages) - 1
+	lastMsg := messages[lastMsgIdx]
+	if len(lastMsg.Content) == 0 {
+		return messages
+	}
+	lastBlockIdx := len(lastMsg.Content) - 1
+
+	var cachedBlock types.ContentBlock
+	switch block := lastMsg.Content[lastBlockIdx].(type) {
+	case types.TextContent:
+		block.CacheControl = types.NewEphemeralPromptCacheControl()
+		cachedBlock = block
+	case types.ToolResultContent:
+		block.CacheControl = types.NewEphemeralPromptCacheControl()
+		cachedBlock = block
+	default:
+		return messages
+	}
+
+	outMessages := make([]types.Message, len(messages))
+	copy(outMessages, messages)
+
+	outContent := make([]types.ContentBlock, len(lastMsg.Content))
+	copy(outContent, lastMsg.Content)
+	outContent[lastBlockIdx] = cachedBlock
+
+	lastMsg.Content = outContent
+	outMessages[lastMsgIdx] = lastMsg
+	return outMessages
+}
+
 func isSafeMetadataHeader(key string) bool {
 	switch strings.ToLower(strings.TrimSpace(key)) {
 	case "content-type", "authorization", "x-api-key", "api-key", "anthropic-version":
@@ -475,13 +576,18 @@ func (c *Client) buildAnthropicRequestBody(req types.APIRequest) (io.Reader, err
 	body := map[string]any{
 		"model":      req.Model.ProviderModelName(),
 		"max_tokens": req.MaxTokens,
-		"messages":   req.Messages,
+		"messages":   anthropicMessagesWithCacheControl(req.Messages, c.provider),
 	}
 
-	// Anthropic-style providers can consume structured system prompt blocks.
-	// Other providers currently fall back to the flattened prompt string so the
-	// runtime keeps one canonical prompt representation while the transport stays simple.
-	if len(req.SystemPromptBlocks) > 0 && c.provider == types.APIProviderAnthropic {
+	// Anthropic-style providers can consume structured system prompt blocks,
+	// preserving cache_control breakpoints. Foundry speaks the same Messages
+	// wire format as Anthropic (both route through this builder) and gets
+	// the same treatment for the same reason tools do just below — flattening
+	// here would silently drop Foundry's system-prompt cache_control instead
+	// of just not caching it. Other providers fall back to the flattened
+	// prompt string so the runtime keeps one canonical prompt representation
+	// while their transport stays simple.
+	if len(req.SystemPromptBlocks) > 0 && (c.provider == types.APIProviderAnthropic || c.provider == types.APIProviderFoundry) {
 		body["system"] = req.SystemPromptBlocks
 	} else if req.SystemPrompt != "" {
 		body["system"] = req.SystemPrompt

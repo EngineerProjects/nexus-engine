@@ -152,7 +152,14 @@ func DefaultConfigs() map[types.APIProvider]*Config {
 		},
 		types.APIProviderMiniMax: {
 			Provider: types.APIProviderMiniMax,
-			BaseURL:  "https://api.minimax.chat/v1/text/chatcompletion_v2",
+			// api.minimax.chat is not a real MiniMax domain (verified against
+			// platform.minimax.io's own docs); api.minimax.io is the current
+			// international host (api.minimaxi.com for mainland China). The
+			// old /v1/text/chatcompletion_v2 path is also documented
+			// deprecated in favor of the standard OpenAI-compatible
+			// /v1/chat/completions, so BaseURL is now a real API root like
+			// every other OpenAI-compatible provider here.
+			BaseURL: "https://api.minimax.io/v1",
 			ModelAliasMapping: map[string]string{
 				"m2.7":      "MiniMax-M2.7",
 				"m2.7-fast": "MiniMax-M2.7-highspeed",
@@ -164,7 +171,12 @@ func DefaultConfigs() map[types.APIProvider]*Config {
 		},
 		types.APIProviderWorkersAI: {
 			Provider: types.APIProviderWorkersAI,
-			BaseURL:  "https://workers.ai/v1/chat",
+			BaseURL:  "https://api.cloudflare.com/client/v4",
+			// ProjectID carries the Cloudflare account id, reusing the same
+			// slot Vertex uses for its GCP project id — both are an
+			// account/tenant identifier embedded directly in the request
+			// URL, not just a header value.
+			ProjectID: os.Getenv("CLOUDFLARE_ACCOUNT_ID"),
 			ModelAliasMapping: map[string]string{
 				"llama":    "@cf/meta/llama-3.1-70b-instruct",
 				"deepseek": "@cf/deepseek-ai/deepseek-r1",
@@ -201,24 +213,34 @@ func DefaultConfigs() map[types.APIProvider]*Config {
 		types.APIProviderCodex: {
 			Provider: types.APIProviderCodex,
 			BaseURL:  "https://chatgpt.com/backend-api/codex",
+			// gpt-5.2-codex/gpt-5.3-codex previously targeted here are
+			// confirmed broken against a real ChatGPT-account session (see
+			// the comment on this provider's catalog entry in registry.go)
+			// - these aliases now point at the models that catalog confirms
+			// actually work. The "5.2"/"5.3" shorthand aliases are removed
+			// rather than silently repointed to a different version.
 			ModelAliasMapping: map[string]string{
-				"default":    "gpt-5.3-codex",
-				"codex":      "gpt-5.3-codex",
+				"default":    "gpt-5.6-sol",
+				"codex":      "gpt-5.6-sol",
 				"mini":       "gpt-5.4-mini",
 				"codex-mini": "gpt-5.4-mini",
-				"5.2":        "gpt-5.2-codex",
-				"5.3":        "gpt-5.3-codex",
+				"5.5":        "gpt-5.5",
 			},
 		},
 		types.APIProviderDeepSeek: {
 			Provider: types.APIProviderDeepSeek,
 			BaseURL:  "https://api.deepseek.com/v1",
+			// deepseek-chat/deepseek-reasoner (targeted by these aliases
+			// previously) are legacy V3.1-era model IDs; DeepSeek's own
+			// pricing docs (api-docs.deepseek.com, checked 2026-08-28) list
+			// only the V4 lineup below, with no mention of the old names.
 			ModelAliasMapping: map[string]string{
-				"default":  "deepseek-chat",
-				"chat":     "deepseek-chat",
-				"coder":    "deepseek-chat",
-				"reasoner": "deepseek-reasoner",
-				"r1":       "deepseek-reasoner",
+				"default":  "deepseek-v4-flash",
+				"chat":     "deepseek-v4-flash",
+				"flash":    "deepseek-v4-flash",
+				"pro":      "deepseek-v4-pro",
+				"reasoner": "deepseek-v4-pro",
+				"vision":   "deepseek-v4-flash-vision-exp",
 			},
 		},
 		types.APIProviderOpenCode: {
@@ -305,59 +327,6 @@ func (c *Config) GetBaseURL() string {
 	return defaultBaseURLs[c.Provider]
 }
 
-func (c *Config) BuildAuthHeaders() map[string]string {
-	headers := make(map[string]string)
-
-	switch c.Provider {
-	case types.APIProviderAnthropic, types.APIProviderBedrock, types.APIProviderVertex:
-		if c.APIKey != "" {
-			headers["x-api-key"] = c.APIKey
-		}
-		headers["anthropic-version"] = "2023-06-01"
-
-	case types.APIProviderOpenAI, types.APIProviderGemini, types.APIProviderOpenRouter, types.APIProviderMiniMax, types.APIProviderMistral, types.APIProviderKimi, types.APIProviderDeepSeek, types.APIProviderOpenCode:
-		if c.APIKey != "" {
-			headers["Authorization"] = "Bearer " + c.APIKey
-		}
-
-	case types.APIProviderFoundry:
-		if c.APIKey != "" {
-			headers["api-key"] = c.APIKey
-		}
-		if c.Region != "" {
-			headers["Anthropic-Foundry-Resource-Id"] = c.Region
-		}
-
-	case types.APIProviderOllama:
-		if c.APIKey != "" {
-			headers["Authorization"] = "Bearer " + c.APIKey
-		}
-
-	case types.APIProviderZAi:
-		if c.APIKey != "" {
-			headers["x-api-key"] = c.APIKey
-		}
-		headers["Content-Type"] = "application/json"
-		headers["Accept-Language"] = "en-US,en"
-
-	case types.APIProviderWorkersAI:
-		if c.APIKey != "" {
-			headers["Authorization"] = "Bearer " + c.APIKey
-		}
-
-	case types.APIProviderCodex:
-		if c.APIKey != "" {
-			headers["Authorization"] = "Bearer " + c.APIKey
-		}
-	}
-
-	for k, v := range c.CustomHeaders {
-		headers[k] = v
-	}
-
-	return headers
-}
-
 func (c *Config) GetEndpoint(model string) string {
 	resolvedModel := c.ResolveModel(model)
 
@@ -365,7 +334,13 @@ func (c *Config) GetEndpoint(model string) string {
 	case types.APIProviderAnthropic, types.APIProviderVertex, types.APIProviderFoundry:
 		return c.GetBaseURL() + "/v1/messages"
 
-	case types.APIProviderOpenAI, types.APIProviderOpenRouter, types.APIProviderMiniMax, types.APIProviderZAi, types.APIProviderMistral, types.APIProviderDeepSeek, types.APIProviderOpenCode, types.APIProviderKimi:
+	case types.APIProviderOpenAI, types.APIProviderOpenRouter, types.APIProviderZAi, types.APIProviderMistral, types.APIProviderDeepSeek, types.APIProviderOpenCode, types.APIProviderKimi, types.APIProviderMiniMax:
+		// MiniMax used to need a special case here: its old BaseURL
+		// (api.minimax.chat/v1/text/chatcompletion_v2) was already a full
+		// endpoint path, so appending "/chat/completions" produced a 404.
+		// That domain and path are gone now — MiniMax's BaseURL is a real
+		// API root (api.minimax.io/v1) like every other provider in this
+		// case, using the current, non-deprecated /v1/chat/completions.
 		return c.GetBaseURL() + "/chat/completions"
 
 	case types.APIProviderGemini:
@@ -375,7 +350,12 @@ func (c *Config) GetEndpoint(model string) string {
 		return c.GetBaseURL() + "/api/chat"
 
 	case types.APIProviderWorkersAI:
-		return c.BaseURL + "/" + resolvedModel
+		// Cloudflare's OpenAI-compatible endpoint is scoped under the
+		// account id (https://api.cloudflare.com/client/v4/accounts/
+		// {account_id}/ai/v1/chat/completions) — the model itself is
+		// specified in the request body, not the URL, matching every
+		// other OpenAI-compatible provider this SDK talks to.
+		return c.GetBaseURL() + "/accounts/" + c.ProjectID + "/ai/v1/chat/completions"
 
 	case types.APIProviderCodex:
 		return c.GetBaseURL() + "/responses"
@@ -399,8 +379,8 @@ var defaultBaseURLs = map[types.APIProvider]string{
 	types.APIProviderGemini:     "https://generativelanguage.googleapis.com/v1beta",
 	types.APIProviderZAi:        "https://api.z.ai/api/paas/v4",
 	types.APIProviderOpenRouter: "https://openrouter.ai/api/v1",
-	types.APIProviderMiniMax:    "https://api.minimax.chat/v1/text/chatcompletion_v2",
-	types.APIProviderWorkersAI:  "https://workers.ai/v1/chat",
+	types.APIProviderMiniMax:    "https://api.minimax.io/v1",
+	types.APIProviderWorkersAI:  "https://api.cloudflare.com/client/v4",
 	types.APIProviderFoundry:    "https://your-resource.services.ai.azure.com/anthropic/v1",
 	types.APIProviderMistral:    "https://api.mistral.ai/v1",
 	types.APIProviderKimi:       "https://api.moonshot.ai/v1",
@@ -463,6 +443,9 @@ func ValidateProviderConfig(config *Config) error {
 	case types.APIProviderWorkersAI:
 		if config.APIKey == "" {
 			return fmt.Errorf("Workers AI requires CLOUDFLARE_API_KEY to be set")
+		}
+		if config.ProjectID == "" {
+			return fmt.Errorf("Workers AI requires CLOUDFLARE_ACCOUNT_ID to be set")
 		}
 
 	case types.APIProviderMistral:

@@ -94,6 +94,24 @@ func TestProviderAdapterDispatch(t *testing.T) {
 	}
 }
 
+// TestMiniMaxEndpointUsesCurrentDomainAndPath verifies MiniMax's default
+// endpoint against its real, currently-documented API: api.minimax.io (not
+// api.minimax.chat, which isn't a real MiniMax domain), with the standard
+// OpenAI-compatible /v1/chat/completions path (not the deprecated
+// /v1/text/chatcompletion_v2). An earlier version of this test locked in a
+// narrower fix for a different bug (GetEndpoint double-appending
+// "/chat/completions" onto what was then treated as an already-complete
+// endpoint) — that special case is gone now that MiniMax's BaseURL is a real
+// API root like every other OpenAI-compatible provider here.
+func TestMiniMaxEndpointUsesCurrentDomainAndPath(t *testing.T) {
+	config := &Config{Provider: types.APIProviderMiniMax, APIKey: "k"}
+	got := config.GetEndpoint("MiniMax-M2.7")
+	want := "https://api.minimax.io/v1/chat/completions"
+	if got != want {
+		t.Fatalf("GetEndpoint() = %q, want %q", got, want)
+	}
+}
+
 // TestGeminiStreamEndpoint locks in the Gemini-specific streaming URL, which is
 // the one request endpoint that differs from the non-stream model endpoint.
 func TestGeminiStreamEndpoint(t *testing.T) {
@@ -111,11 +129,26 @@ func TestGeminiStreamEndpoint(t *testing.T) {
 
 // TestAdapterForProviderDefault verifies unmapped/anthropic-compatible providers
 // fall back to the Anthropic wire format, matching the prior switch default.
+// WorkersAI is deliberately NOT in this list: it used to fall through to this
+// same default by omission (a bug — Cloudflare's endpoint is OpenAI-shaped,
+// not Anthropic Messages-shaped), fixed by routing it through
+// openAICompatAdapter instead. See TestAdapterForProviderWorkersAIUsesOpenAICompat.
 func TestAdapterForProviderDefault(t *testing.T) {
-	for _, p := range []types.APIProvider{types.APIProviderAnthropic, types.APIProviderBedrock, types.APIProviderVertex, types.APIProviderWorkersAI} {
+	for _, p := range []types.APIProvider{types.APIProviderAnthropic, types.APIProviderBedrock, types.APIProviderVertex} {
 		if _, ok := adapterForProvider(p).(anthropicAdapter); !ok {
 			t.Errorf("adapterForProvider(%s) = %T, want anthropicAdapter", p, adapterForProvider(p))
 		}
+	}
+}
+
+// TestAdapterForProviderWorkersAIUsesOpenAICompat verifies the fix for
+// WorkersAI silently falling through to the Anthropic Messages wire format
+// (wrong request shape, wrong auth header) because it was absent from
+// adapterForProvider's real dispatch cases. Cloudflare's Workers AI endpoint
+// (ai/v1/chat/completions) is genuinely OpenAI-compatible.
+func TestAdapterForProviderWorkersAIUsesOpenAICompat(t *testing.T) {
+	if _, ok := adapterForProvider(types.APIProviderWorkersAI).(openAICompatAdapter); !ok {
+		t.Errorf("adapterForProvider(workers-ai) = %T, want openAICompatAdapter", adapterForProvider(types.APIProviderWorkersAI))
 	}
 }
 
@@ -125,6 +158,93 @@ func TestAdapterForProviderDefault(t *testing.T) {
 // provider-picker UIs) but no config.go Config, no adapter mapping (silently
 // fell through to the Anthropic wire format), and no env var mapping -
 // selecting it would have failed outright.
+// TestDefaultBaseURL_MiniMaxEnablesModelSync verifies the fix for MiniMax
+// model sync being unconditionally broken: DefaultBaseURL had no case for it
+// (fell to the empty-string default), so FetchModels built "" + "/v1/models"
+// whenever no explicit base URL was supplied. Now that MiniMax's real API
+// root (api.minimax.io) supports the standard OpenAI-compatible /v1/models
+// discovery endpoint, this returns a real, working base.
+func TestDefaultBaseURL_MiniMaxEnablesModelSync(t *testing.T) {
+	if got := DefaultBaseURL("minimax"); got != "https://api.minimax.io" {
+		t.Errorf(`DefaultBaseURL("minimax") = %q, want the international https://api.minimax.io endpoint`, got)
+	}
+}
+
+// TestResolveRequestModel_AppliesAliasMapping guards a bug found via a live
+// smoke test against a real Codex account: model aliases (e.g. "default" ->
+// "gpt-5.6-sol") were never actually applied to the outgoing request.
+// Config.ResolveModel was only ever called inside GetEndpoint, which only
+// matters for providers whose endpoint URL embeds the model (Gemini) - every
+// OpenAI-compatible provider and Codex put the model in the JSON body via
+// ModelIdentifier.ProviderModelName(), which has no access to alias mapping.
+// A raw alias like "default" was sent to the real API verbatim and rejected:
+// {"detail":"The 'default' model is not supported when using Codex with a
+// ChatGPT account."}. resolveRequestModel is now called at the top of every
+// public entry point (CreateMessage, CreateMessageStreamResultWithCallback,
+// CreateMessageStream) so every adapter sees the resolved model consistently.
+func TestResolveRequestModel_AppliesAliasMapping(t *testing.T) {
+	config := &Config{
+		Provider: types.APIProviderCodex,
+		ModelAliasMapping: map[string]string{
+			"default": "gpt-5.6-sol",
+		},
+	}
+	client := NewClientWithConfig("k", config)
+
+	req := types.APIRequest{Model: types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "default"}}
+	resolved := client.resolveRequestModel(req)
+	if resolved.Model.Model != "gpt-5.6-sol" {
+		t.Fatalf("resolveRequestModel() model = %q, want gpt-5.6-sol", resolved.Model.Model)
+	}
+
+	// A model that isn't a known alias passes through unchanged.
+	req2 := types.APIRequest{Model: types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "gpt-5.5"}}
+	resolved2 := client.resolveRequestModel(req2)
+	if resolved2.Model.Model != "gpt-5.5" {
+		t.Fatalf("resolveRequestModel() model = %q, want unchanged gpt-5.5", resolved2.Model.Model)
+	}
+}
+
+// TestCreateMessage_SendsResolvedModelInRequestBody is an end-to-end guard
+// for the same bug at the real HTTP boundary: it spins up a fake server and
+// asserts the JSON body's "model" field is the alias's resolved target, not
+// the raw alias string a caller passed in.
+func TestCreateMessage_SendsResolvedModelInRequestBody(t *testing.T) {
+	var gotModel string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Model string `json:"model"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		gotModel = body.Model
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"resp-1","choices":[{"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}]}`))
+	}))
+	defer server.Close()
+
+	config := &Config{
+		Provider: types.APIProviderOpenAI,
+		BaseURL:  server.URL,
+		ModelAliasMapping: map[string]string{
+			"default": "gpt-4o",
+		},
+	}
+	client := NewClientWithConfig("k", config)
+	client.SetHTTPClient(server.Client())
+
+	_, err := client.CreateMessage(context.Background(), types.APIRequest{
+		Model:     types.ModelIdentifier{Provider: types.APIProviderOpenAI, Model: "default"},
+		MaxTokens: 10,
+		Messages:  []types.Message{types.UserMessage("m1", "hi")},
+	})
+	if err != nil {
+		t.Fatalf("CreateMessage: %v", err)
+	}
+	if gotModel != "gpt-4o" {
+		t.Fatalf("server received model %q, want resolved alias gpt-4o", gotModel)
+	}
+}
+
 func TestKimiProviderConfig(t *testing.T) {
 	cfg := GetProviderConfig(types.APIProviderKimi)
 	if cfg == nil {
@@ -164,6 +284,56 @@ func TestKimiProviderConfig(t *testing.T) {
 	}
 	if !found {
 		t.Error(`expected "kimi-k3" in the Kimi model catalog`)
+	}
+}
+
+// TestWorkersAIProviderConfig locks in the fix for WorkersAI being completely
+// non-functional: it fell through to the Anthropic wire format by omission
+// from adapterForProvider (wrong request shape, wrong x-api-key auth instead
+// of Bearer), its default BaseURL was https://workers.ai/v1/chat — not a real
+// Cloudflare domain — and there was no account_id concept anywhere, even
+// though Cloudflare's real endpoint is scoped under one
+// (.../accounts/{account_id}/ai/v1/chat/completions).
+func TestWorkersAIProviderConfig(t *testing.T) {
+	t.Setenv("CLOUDFLARE_ACCOUNT_ID", "test-account-id")
+	cfg := GetProviderConfig(types.APIProviderWorkersAI)
+	if cfg == nil {
+		t.Fatal("GetProviderConfig(workers-ai) = nil")
+	}
+	if cfg.BaseURL != "https://api.cloudflare.com/client/v4" {
+		t.Errorf("workers-ai BaseURL = %q, want the real Cloudflare API domain", cfg.BaseURL)
+	}
+
+	cfg.APIKey = "test-key"
+	cfg.ProjectID = "test-account-id"
+	endpoint := cfg.GetEndpoint("@cf/meta/llama-3.1-70b-instruct")
+	wantEndpoint := "https://api.cloudflare.com/client/v4/accounts/test-account-id/ai/v1/chat/completions"
+	if endpoint != wantEndpoint {
+		t.Errorf("GetEndpoint() = %q, want %q", endpoint, wantEndpoint)
+	}
+
+	if _, ok := adapterForProvider(types.APIProviderWorkersAI).(openAICompatAdapter); !ok {
+		t.Errorf("adapterForProvider(workers-ai) = %T, want openAICompatAdapter", adapterForProvider(types.APIProviderWorkersAI))
+	}
+
+	if got := providerEnvVar(types.APIProviderWorkersAI); got != "CLOUDFLARE_API_KEY" {
+		t.Errorf("providerEnvVar(workers-ai) = %q, want CLOUDFLARE_API_KEY", got)
+	}
+}
+
+// TestValidateProviderConfig_WorkersAIRequiresAccountID verifies that a
+// WorkersAI config without an account id is rejected before ever reaching
+// the network — previously nothing in this codebase modeled account_id at
+// all, so a request would only fail late with an opaque malformed-URL error.
+func TestValidateProviderConfig_WorkersAIRequiresAccountID(t *testing.T) {
+	cfg := &Config{Provider: types.APIProviderWorkersAI, APIKey: "k"}
+	if err := ValidateProviderConfig(cfg); err == nil {
+		t.Error("expected an error when CLOUDFLARE_ACCOUNT_ID/ProjectID is missing")
+	}
+
+	cfg.ProjectID = "acct-123"
+	if err := ValidateProviderConfig(cfg); err != nil {
+		t.Errorf("unexpected error once ProjectID is set: %v", err)
 	}
 }
 
@@ -2909,6 +3079,140 @@ func TestAnthropicToolsWithCacheControl_FoundryAlsoGetsCache(t *testing.T) {
 	}
 }
 
+// TestAnthropicMessagesWithCacheControl verifies the fix for conversation/
+// tool-result history never being cached: previously only the system prompt
+// and tool definitions ever got a cache_control breakpoint, so in a long
+// agentic loop (many tool_use/tool_result rounds) the whole growing history
+// was reprocessed from scratch on every single call. The last cacheable
+// block of the last message should now get an ephemeral breakpoint too, for
+// Anthropic-compatible providers only, without mutating the input.
+func TestAnthropicMessagesWithCacheControl(t *testing.T) {
+	t.Run("marks last TextContent block for Anthropic", func(t *testing.T) {
+		messages := []types.Message{
+			types.UserMessage("m1", "hello"),
+		}
+		result := anthropicMessagesWithCacheControl(messages, types.APIProviderAnthropic)
+		text, ok := result[0].Content[0].(types.TextContent)
+		if !ok || text.CacheControl == nil {
+			t.Fatalf("expected last TextContent block to carry cache_control, got %+v", result[0].Content[0])
+		}
+		if orig, ok := messages[0].Content[0].(types.TextContent); !ok || orig.CacheControl != nil {
+			t.Error("original messages slice must not be mutated")
+		}
+	})
+
+	t.Run("marks last ToolResultContent block for Foundry", func(t *testing.T) {
+		messages := []types.Message{
+			{ID: "m1", Role: types.RoleUser, Content: []types.ContentBlock{
+				types.ToolResultContent{ToolUseID: "t1", Content: "ok"},
+			}},
+		}
+		result := anthropicMessagesWithCacheControl(messages, types.APIProviderFoundry)
+		toolResult, ok := result[0].Content[0].(types.ToolResultContent)
+		if !ok || toolResult.CacheControl == nil {
+			t.Fatalf("expected last ToolResultContent block to carry cache_control, got %+v", result[0].Content[0])
+		}
+	})
+
+	t.Run("only marks the trailing block, not earlier ones in the same message", func(t *testing.T) {
+		messages := []types.Message{
+			{ID: "m1", Role: types.RoleUser, Content: []types.ContentBlock{
+				types.TextContent{Text: "first"},
+				types.TextContent{Text: "last"},
+			}},
+		}
+		result := anthropicMessagesWithCacheControl(messages, types.APIProviderAnthropic)
+		first := result[0].Content[0].(types.TextContent)
+		last := result[0].Content[1].(types.TextContent)
+		if first.CacheControl != nil {
+			t.Error("only the trailing block should be marked")
+		}
+		if last.CacheControl == nil {
+			t.Error("the trailing block must be marked")
+		}
+	})
+
+	t.Run("no-op when the trailing block type is not cacheable", func(t *testing.T) {
+		messages := []types.Message{
+			{ID: "m1", Role: types.RoleAssistant, Content: []types.ContentBlock{
+				types.ToolUseContent{ID: "t1", Name: "read", Input: map[string]any{}},
+			}},
+		}
+		result := anthropicMessagesWithCacheControl(messages, types.APIProviderAnthropic)
+		if len(result) != len(messages) {
+			t.Fatalf("expected unchanged messages, got different length")
+		}
+	})
+
+	t.Run("not applied for non-Anthropic-compatible providers", func(t *testing.T) {
+		messages := []types.Message{types.UserMessage("m1", "hello")}
+		result := anthropicMessagesWithCacheControl(messages, types.APIProviderOpenAI)
+		text := result[0].Content[0].(types.TextContent)
+		if text.CacheControl != nil {
+			t.Error("OpenAI must not get cache_control")
+		}
+	})
+
+	t.Run("empty messages is a no-op", func(t *testing.T) {
+		result := anthropicMessagesWithCacheControl(nil, types.APIProviderAnthropic)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+}
+
+func TestBuildRequestBody_AnthropicMessagesHaveCacheControlOnTrailingBlock(t *testing.T) {
+	client := NewClient("key", types.APIProviderAnthropic)
+	req := types.APIRequest{
+		Model:     types.ModelIdentifier{Provider: types.APIProviderAnthropic, Model: "claude-sonnet-4-20250514"},
+		MaxTokens: 1024,
+		Messages: []types.Message{
+			types.UserMessage("m1", "hello"),
+			{ID: "m2", Role: types.RoleAssistant, Content: []types.ContentBlock{
+				types.ToolUseContent{ID: "t1", Name: "read", Input: map[string]any{}},
+			}},
+			{ID: "m3", Role: types.RoleUser, Content: []types.ContentBlock{
+				types.ToolResultContent{ToolUseID: "t1", Content: "file contents"},
+			}},
+		},
+	}
+
+	body, err := client.buildRequestBody(req)
+	if err != nil {
+		t.Fatalf("buildRequestBody: %v", err)
+	}
+	data, _ := io.ReadAll(body)
+
+	var payload struct {
+		Messages []struct {
+			Content []struct {
+				Type         string `json:"type"`
+				CacheControl *struct {
+					Type string `json:"type"`
+				} `json:"cache_control"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(payload.Messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(payload.Messages))
+	}
+	lastMsg := payload.Messages[2]
+	lastBlock := lastMsg.Content[len(lastMsg.Content)-1]
+	if lastBlock.CacheControl == nil || lastBlock.CacheControl.Type != "ephemeral" {
+		t.Errorf("expected the last message's trailing tool_result block to carry cache_control, got %+v", lastBlock)
+	}
+	for i, msg := range payload.Messages[:2] {
+		for j, block := range msg.Content {
+			if block.CacheControl != nil {
+				t.Errorf("message %d block %d: only the final message's trailing block should carry cache_control", i, j)
+			}
+		}
+	}
+}
+
 func TestBuildRequestBody_AnthropicToolsHaveCacheControl(t *testing.T) {
 	client := NewClient("key", types.APIProviderAnthropic)
 	req := types.APIRequest{
@@ -3037,6 +3341,78 @@ func TestBuildRequestBody_AnthropicSystemPromptBlocksWithCache(t *testing.T) {
 	}
 }
 
+// TestHTTPClientForProvider_OllamaGetsLongerResponseHeaderTimeout verifies the
+// fix for local Ollama requests failing when a large model takes longer than
+// the shared 60s ResponseHeaderTimeout to load and emit its first byte —
+// legitimate on constrained hardware or a cold model, unlike a remote API
+// that's already warm. Ollama gets its own longer timeout; every other
+// provider keeps the default (checked here via OpenAI as a representative).
+func TestHTTPClientForProvider_OllamaGetsLongerResponseHeaderTimeout(t *testing.T) {
+	ollamaClient := httpClientForProvider(types.APIProviderOllama)
+	ollamaTransport, ok := ollamaClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected *http.Transport, got %T", ollamaClient.Transport)
+	}
+	if ollamaTransport.ResponseHeaderTimeout <= defaultResponseHeaderTimeout {
+		t.Fatalf("Ollama ResponseHeaderTimeout = %v, want > default %v", ollamaTransport.ResponseHeaderTimeout, defaultResponseHeaderTimeout)
+	}
+
+	defaultClient := httpClientForProvider(types.APIProviderOpenAI)
+	defaultTransport, ok := defaultClient.Transport.(*http.Transport)
+	if !ok {
+		t.Fatalf("expected *http.Transport, got %T", defaultClient.Transport)
+	}
+	if defaultTransport.ResponseHeaderTimeout != defaultResponseHeaderTimeout {
+		t.Fatalf("OpenAI ResponseHeaderTimeout = %v, want unchanged default %v", defaultTransport.ResponseHeaderTimeout, defaultResponseHeaderTimeout)
+	}
+}
+
+// TestBuildRequestBody_FoundrySystemPromptBlocksWithCache verifies the fix for
+// Foundry silently losing its system-prompt cache_control: it speaks the same
+// Anthropic Messages wire format and shares this request builder, but was
+// gated out of the structured-block path and fell back to
+// FlattenSystemPromptBlocks, which drops CacheControl entirely.
+func TestBuildRequestBody_FoundrySystemPromptBlocksWithCache(t *testing.T) {
+	client := NewClient("key", types.APIProviderFoundry)
+	req := types.APIRequest{
+		Model:     types.ModelIdentifier{Provider: types.APIProviderFoundry, Model: "claude-sonnet-4-20250514"},
+		MaxTokens: 1024,
+		Messages:  []types.Message{types.UserMessage("m1", "hello")},
+		SystemPromptBlocks: []types.SystemPromptBlock{
+			types.NewTextSystemPromptBlock("stable content", types.NewEphemeralPromptCacheControl()),
+			types.NewTextSystemPromptBlock("dynamic content", nil),
+		},
+	}
+
+	body, err := client.buildRequestBody(req)
+	if err != nil {
+		t.Fatalf("buildRequestBody: %v", err)
+	}
+	data, _ := io.ReadAll(body)
+
+	var payload struct {
+		System []struct {
+			Type         string `json:"type"`
+			Text         string `json:"text"`
+			CacheControl *struct {
+				Type string `json:"type"`
+			} `json:"cache_control"`
+		} `json:"system"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(payload.System) != 2 {
+		t.Fatalf("expected 2 system blocks, got %d", len(payload.System))
+	}
+	if payload.System[0].CacheControl == nil || payload.System[0].CacheControl.Type != "ephemeral" {
+		t.Error("stable block must have ephemeral cache_control")
+	}
+	if payload.System[1].CacheControl != nil {
+		t.Error("dynamic block must not have cache_control")
+	}
+}
+
 // TestGetCodexHTTPClientHasNoBodyCoveringTimeout guards against regressing to
 // the old getCodexHTTPClient behavior: it used to set http.Client.Timeout,
 // which (unlike every other provider's newStreamingHTTPClient) covers the
@@ -3045,6 +3421,128 @@ func TestBuildRequestBody_AnthropicSystemPromptBlocksWithCache(t *testing.T) {
 // fixed timeout to finish streaming a single turn - the cutoff killed the
 // request mid-stream, and that failure was then classified as non-retryable,
 // so the whole turn died outright.
+// TestRegistryPromptCachingMetadataMatchesWhatIsActuallyImplemented verifies
+// three low-confidence registry corrections made after checking each
+// provider's real behavior:
+//   - Kimi (Moonshot) caches automatically server-side with no client-side
+//     action required, so SupportsPC: true is accurate regardless of what
+//     this codebase's own request building does.
+//   - OpenRouter's provider-level flag claimed caching support that no
+//     model in its list actually carried, and this codebase routes
+//     OpenRouter through the OpenAI-compatible adapter (no cache_control
+//     field at all) — SupportsPC: false reflects what is actually
+//     implemented, not what OpenRouter could theoretically support for a
+//     Claude sub-model sent in Anthropic's native wire shape.
+//
+// TestDeepSeekCatalogUsesCurrentModelIDs verifies the fix for a stale
+// registry: deepseek-chat/deepseek-reasoner/deepseek-coder-v2 were legacy
+// V3.1-era model IDs that DeepSeek's own pricing docs no longer list at all
+// (reported retired 2026-07-24) — every request built against the old
+// catalog would have targeted a model ID that no longer resolves. The
+// catalog and alias mapping now point at the current V4 lineup.
+// TestCodexAliasMappingPointsAtWorkingModels verifies the fix for Codex's
+// "default"/"codex" aliases pointing at gpt-5.3-codex — a model registry.go's
+// own catalog comment already documents as "confirmed broken by a real
+// ChatGPT-account session" (alongside gpt-5.2-codex/gpt-5.4-codex). Typing
+// codex:default or codex:codex sent a model this same repo already knew
+// didn't work. Aliases now resolve to models registry.go's catalog lists as
+// actually available (gpt-5.6-sol, gpt-5.5, gpt-5.4-mini).
+func TestCodexAliasMappingPointsAtWorkingModels(t *testing.T) {
+	cfg := GetProviderConfig(types.APIProviderCodex)
+	if cfg == nil {
+		t.Fatal("expected Codex provider config")
+	}
+
+	brokenModels := map[string]bool{
+		"gpt-5.2-codex": true,
+		"gpt-5.3-codex": true,
+		"gpt-5.4-codex": true,
+	}
+	for alias, target := range cfg.ModelAliasMapping {
+		if brokenModels[target] {
+			t.Errorf("alias %q resolves to %q, a model confirmed broken for this provider", alias, target)
+		}
+	}
+
+	for _, alias := range []string{"default", "codex"} {
+		if got := cfg.ModelAliasMapping[alias]; got != "gpt-5.6-sol" {
+			t.Errorf("alias %q = %q, want gpt-5.6-sol (the confirmed-working flagship)", alias, got)
+		}
+	}
+}
+
+func TestDeepSeekCatalogUsesCurrentModelIDs(t *testing.T) {
+	info, ok := AllProvidersInfo()[types.APIProviderDeepSeek]
+	if !ok {
+		t.Fatal("expected DeepSeek provider info")
+	}
+
+	wantIDs := map[string]bool{
+		"deepseek-v4-flash":            false,
+		"deepseek-v4-pro":              false,
+		"deepseek-v4-flash-vision-exp": false,
+	}
+	staleIDs := map[string]bool{
+		"deepseek-chat":     true,
+		"deepseek-reasoner": true,
+		"deepseek-coder-v2": true,
+	}
+	for _, m := range info.Models {
+		if _, isStale := staleIDs[m.Identifier]; isStale {
+			t.Errorf("registry still lists retired model ID %q", m.Identifier)
+		}
+		if _, ok := wantIDs[m.Identifier]; ok {
+			wantIDs[m.Identifier] = true
+		}
+		if m.ContextWindow < 1000000 {
+			t.Errorf("model %q: expected ~1M context window, got %d", m.Identifier, m.ContextWindow)
+		}
+	}
+	for id, found := range wantIDs {
+		if !found {
+			t.Errorf("expected current model %q in DeepSeek catalog", id)
+		}
+	}
+
+	config := GetProviderConfig(types.APIProviderDeepSeek)
+	if config == nil {
+		t.Fatal("expected DeepSeek provider config")
+	}
+	for alias, target := range config.ModelAliasMapping {
+		if staleIDs[target] {
+			t.Errorf("alias %q still resolves to retired model ID %q", alias, target)
+		}
+	}
+}
+
+func TestRegistryPromptCachingMetadataMatchesWhatIsActuallyImplemented(t *testing.T) {
+	info := AllProvidersInfo()
+
+	kimi, ok := info[types.APIProviderKimi]
+	if !ok {
+		t.Fatal("expected Kimi provider info")
+	}
+	if !kimi.SupportsPC {
+		t.Error("Kimi should report SupportsPC: true (automatic server-side caching)")
+	}
+	for _, m := range kimi.Models {
+		if !m.SupportsPC {
+			t.Errorf("Kimi model %s should report SupportsPC: true", m.Identifier)
+		}
+		if !m.Capabilities.PromptCaching {
+			t.Errorf("Kimi model %s should report Capabilities.PromptCaching: true", m.Identifier)
+		}
+	}
+
+	openrouter, ok := info[types.APIProviderOpenRouter]
+	if !ok {
+		t.Fatal("expected OpenRouter provider info")
+	}
+	if openrouter.SupportsPC {
+		t.Error("OpenRouter should report SupportsPC: false — this codebase never sends cache_control for it")
+	}
+}
+
 func TestGetCodexHTTPClientHasNoBodyCoveringTimeout(t *testing.T) {
 	client := getCodexHTTPClient()
 	if client.Timeout != 0 {
@@ -3092,9 +3590,8 @@ func TestParseCodexSSEStreamCapturesCachedAndReasoningTokens(t *testing.T) {
 
 // TestBuildCodexRequestBody_FreshTurnSendsFullHistory guards the default,
 // no-continuation-hint path: the whole message history is sent, no
-// previous_response_id, but the response is still always stored (see
-// buildCodexRequestBody's doc comment) so it can anchor the next
-// iteration's continuation.
+// previous_response_id, and store is always false (see
+// buildCodexRequestBody's doc comment for why).
 func TestBuildCodexRequestBody_FreshTurnSendsFullHistory(t *testing.T) {
 	client := &Client{}
 	req := types.APIRequest{
@@ -3117,8 +3614,8 @@ func TestBuildCodexRequestBody_FreshTurnSendsFullHistory(t *testing.T) {
 	if _, ok := body["previous_response_id"]; ok {
 		t.Fatal("expected no previous_response_id on a fresh turn")
 	}
-	if body["store"] != true {
-		t.Fatalf("expected store=true, got %v", body["store"])
+	if body["store"] != false {
+		t.Fatalf("expected store=false (the chatgpt.com/backend-api/codex backend rejects store=true), got %v", body["store"])
 	}
 	input, ok := body["input"].([]any)
 	if !ok || len(input) != 2 {
@@ -3126,12 +3623,14 @@ func TestBuildCodexRequestBody_FreshTurnSendsFullHistory(t *testing.T) {
 	}
 }
 
-// TestBuildCodexRequestBody_ContinuationSendsOnlyNewMessages guards the
-// actual fix: with a valid PreviousResponseID/PreviousResponseMessageCount,
-// only the messages appended since that response are sent, alongside
-// previous_response_id - not the whole growing history. This is the change
-// that closes out the browse sub-agent incident (one turn resending its
-// entire, ever-growing message history on every internal iteration).
+// TestBuildCodexRequestBody_ContinuationSendsOnlyNewMessages exercises
+// buildCodexRequestBody's message-slicing logic in isolation given an
+// explicit PreviousResponseID. The engine itself never populates this field
+// anymore (recordPreviousResponse is a permanent no-op - see loop.go and
+// engine_test.go's TestRecordPreviousResponseNeverCapturesForCodex), since
+// "store" must always be false and previous_response_id can only reference a
+// stored response. This test just confirms the slicing behavior still works
+// correctly if that field were ever set some other way.
 func TestBuildCodexRequestBody_ContinuationSendsOnlyNewMessages(t *testing.T) {
 	client := &Client{}
 	req := types.APIRequest{
@@ -3157,8 +3656,8 @@ func TestBuildCodexRequestBody_ContinuationSendsOnlyNewMessages(t *testing.T) {
 	if body["previous_response_id"] != "resp-1" {
 		t.Fatalf("expected previous_response_id=resp-1, got %v", body["previous_response_id"])
 	}
-	if body["store"] != true {
-		t.Fatalf("expected store=true, got %v", body["store"])
+	if body["store"] != false {
+		t.Fatalf("expected store=false (the chatgpt.com/backend-api/codex backend rejects store=true), got %v", body["store"])
 	}
 	input, ok := body["input"].([]any)
 	if !ok || len(input) != 2 {

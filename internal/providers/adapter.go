@@ -51,7 +51,7 @@ func adapterForProvider(p types.APIProvider) providerAdapter {
 	switch p {
 	case types.APIProviderZAi, "zai", "z.ai":
 		return zAiAdapter{}
-	case types.APIProviderOpenAI, types.APIProviderMiniMax, types.APIProviderOpenRouter, types.APIProviderMistral, types.APIProviderDeepSeek, types.APIProviderOpenCode, types.APIProviderKimi:
+	case types.APIProviderOpenAI, types.APIProviderMiniMax, types.APIProviderOpenRouter, types.APIProviderMistral, types.APIProviderDeepSeek, types.APIProviderOpenCode, types.APIProviderKimi, types.APIProviderWorkersAI:
 		return openAICompatAdapter{}
 	case types.APIProviderCodex:
 		return codexAdapter{}
@@ -62,8 +62,8 @@ func adapterForProvider(p types.APIProvider) providerAdapter {
 	case types.APIProviderFoundry:
 		return foundryAdapter{}
 	default:
-		// anthropic, bedrock, vertex, workers-ai, and any unknown provider use
-		// the Anthropic Messages wire format (matches the prior switch default).
+		// anthropic, bedrock, vertex, and any unknown provider use the
+		// Anthropic Messages wire format (matches the prior switch default).
 		return anthropicAdapter{}
 	}
 }
