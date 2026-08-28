@@ -231,15 +231,10 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
       - [ ] Sans URL de base explicite fournie par l'appelant, `FetchModels`
             construit `"" + "/v1/models"` → découverte de modèles cassée
 
-- [ ] **DeepSeek — fenêtres de contexte probablement inversées**
-      - [ ] `internal/providers/registry.go:174` vs `:178` — `deepseek-chat`
-            à `ContextWindow: 64000` alors que `deepseek-coder-v2` (modèle
-            apparemment obsolète, fusionné dans `deepseek-chat`) est à
-            `128000` — un modèle phare plus récent ne devrait pas avoir une
-            fenêtre plus petite qu'une variante qu'il a remplacée
-      - [ ] Confiance modérée : `deepseek-chat`/`deepseek-reasoner` sont
-            généralement documentés à 128K, pas 64K — à vérifier contre la
-            doc officielle DeepSeek avant de changer
+*(L'item DeepSeek qui vivait ici — "fenêtres de contexte probablement
+inversées" — est résolu, avec un scope bien plus large que prévu ; voir
+section 🟡 ci-dessous : "DeepSeek — catalogue de modèles entièrement
+obsolète".)*
 
 - [x] **Ollama — timeout de 60s potentiellement trop court pour un gros modèle local** ✅ FIXÉ
       **Problème :** `ResponseHeaderTimeout: 60s` était partagé par tous les
