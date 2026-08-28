@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	compact "github.com/KPO-Tech/seshat/internal/runtime/memory"
+
 	"github.com/KPO-Tech/seshat/internal/execution"
 	"github.com/KPO-Tech/seshat/internal/memory"
 	"github.com/KPO-Tech/seshat/internal/permissions"
@@ -2575,6 +2577,191 @@ func TestCallModelDoesNotFallbackOnPermanentError(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("expected only the primary model call, got %d", calls)
+	}
+}
+
+// ─── Codex previous_response_id continuation ───────────────────────────────
+// Guards the fix for a production incident where one browse sub-agent turn
+// resent its entire, ever-growing message history on every internal
+// iteration (up to MaxIterations) because Codex's client hardcoded
+// "store": false, forgoing the Responses API's previous_response_id
+// conversation-chaining feature. See recordPreviousResponse and
+// buildAPIRequest in loop.go, and MutableState's PreviousResponseID doc
+// comment in state.go.
+
+func TestBuildAPIRequestOmitsPreviousResponseIDByDefault(t *testing.T) {
+	loop := NewLoop(nil, nil, nil, nil, nil, nil, &LoopConfig{EnableStreaming: false}, nil)
+	state := NewMutableState([]types.Message{types.UserMessage("msg-1", "hi")})
+	codex := types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "gpt-5.6-sol"}
+
+	apiReq := loop.buildAPIRequest(state, RunRequest{}, codex)
+	if apiReq.PreviousResponseID != "" {
+		t.Fatalf("expected no PreviousResponseID on a fresh turn, got %q", apiReq.PreviousResponseID)
+	}
+}
+
+func TestRecordPreviousResponseCapturesOnCodexSuccess(t *testing.T) {
+	loop := NewLoop(nil, nil, nil, nil, nil, nil, &LoopConfig{EnableStreaming: false}, nil)
+	state := NewMutableState([]types.Message{types.UserMessage("msg-1", "hi")})
+	codex := types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "gpt-5.6-sol"}
+
+	loop.recordPreviousResponse(state, codex, &types.APIResponse{ID: "resp-1"})
+	if state.PreviousResponseID != "resp-1" {
+		t.Fatalf("expected PreviousResponseID to be captured, got %q", state.PreviousResponseID)
+	}
+	if state.PreviousResponseMessageCount != 1 {
+		t.Fatalf("expected PreviousResponseMessageCount=1 (the single seeded message), got %d", state.PreviousResponseMessageCount)
+	}
+
+	// The next iteration's request should now offer the continuation hint.
+	apiReq := loop.buildAPIRequest(state, RunRequest{}, codex)
+	if apiReq.PreviousResponseID != "resp-1" || apiReq.PreviousResponseMessageCount != 1 {
+		t.Fatalf("expected the recorded continuation hint to be offered, got id=%q count=%d",
+			apiReq.PreviousResponseID, apiReq.PreviousResponseMessageCount)
+	}
+}
+
+func TestRecordPreviousResponseInvalidatedByNonCodexProvider(t *testing.T) {
+	loop := NewLoop(nil, nil, nil, nil, nil, nil, &LoopConfig{EnableStreaming: false}, nil)
+	state := NewMutableState([]types.Message{types.UserMessage("msg-1", "hi")})
+	codex := types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "gpt-5.6-sol"}
+	anthropic := types.ModelIdentifier{Provider: types.APIProviderAnthropic, Model: "claude-3-5-sonnet-20241022"}
+
+	loop.recordPreviousResponse(state, codex, &types.APIResponse{ID: "resp-1"})
+	if state.PreviousResponseID == "" {
+		t.Fatal("expected the Codex response to be recorded first")
+	}
+
+	// A fallback (or any other) provider answering must invalidate the
+	// stored reference - it no longer describes what the growing message
+	// history looks like from Codex's perspective.
+	loop.recordPreviousResponse(state, anthropic, &types.APIResponse{ID: "resp-2"})
+	if state.PreviousResponseID != "" {
+		t.Fatalf("expected PreviousResponseID to be cleared after a non-Codex response, got %q", state.PreviousResponseID)
+	}
+
+	apiReq := loop.buildAPIRequest(state, RunRequest{}, codex)
+	if apiReq.PreviousResponseID != "" {
+		t.Fatal("expected no continuation hint to be offered after invalidation")
+	}
+}
+
+func TestBuildAPIRequestNeverOffersPreviousResponseIDToNonCodexProvider(t *testing.T) {
+	loop := NewLoop(nil, nil, nil, nil, nil, nil, &LoopConfig{EnableStreaming: false}, nil)
+	state := NewMutableState([]types.Message{types.UserMessage("msg-1", "hi")})
+	codex := types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "gpt-5.6-sol"}
+	anthropic := types.ModelIdentifier{Provider: types.APIProviderAnthropic, Model: "claude-3-5-sonnet-20241022"}
+
+	loop.recordPreviousResponse(state, codex, &types.APIResponse{ID: "resp-1"})
+
+	// Even with a valid recorded reference, only Codex is offered it - a
+	// mid-turn fallback to a different provider must never receive another
+	// provider's opaque response-id format.
+	apiReq := loop.buildAPIRequest(state, RunRequest{}, anthropic)
+	if apiReq.PreviousResponseID != "" {
+		t.Fatal("expected no continuation hint to be offered to a non-Codex provider")
+	}
+}
+
+func TestCallModelChainsPreviousResponseIDAcrossIterations(t *testing.T) {
+	codex := types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "gpt-5.6-sol"}
+	loop := NewLoop(nil, nil, nil, nil, nil, nil, &LoopConfig{AutoCompact: false, EnableStreaming: false}, nil)
+
+	var seenPreviousID []string
+	var seenMessageCount []int
+	call := 0
+	loop.sendAPIRequestFn = func(ctx context.Context, apiReq types.APIRequest) (*types.APIResponse, error) {
+		call++
+		seenPreviousID = append(seenPreviousID, apiReq.PreviousResponseID)
+		seenMessageCount = append(seenMessageCount, apiReq.PreviousResponseMessageCount)
+		return &types.APIResponse{
+			Role:       types.RoleAssistant,
+			Content:    []types.ContentBlock{types.TextContent{Text: fmt.Sprintf("reply-%d", call)}},
+			StopReason: types.StopReasonEndTurn,
+			Model:      apiReq.Model,
+			ID:         fmt.Sprintf("resp-%d", call),
+		}, nil
+	}
+
+	state := NewMutableState([]types.Message{types.UserMessage("msg-1", "hi")})
+
+	// Iteration 1: fresh turn, nothing to continue from yet.
+	_, err := loop.callModel(context.Background(), state, RunRequest{Model: codex, MaxTokens: 256})
+	if err != nil {
+		t.Fatalf("callModel (iteration 1) failed: %v", err)
+	}
+	// Simulate what Loop.Run does between iterations: append the assistant's
+	// reply (and, in a real turn, tool results) before the next call.
+	state.Messages = append(state.Messages, types.AssistantMessage("resp-1", []types.ContentBlock{types.TextContent{Text: "reply-1"}}))
+
+	// Iteration 2: should now reuse iteration 1's response id and only need
+	// to send what's new since then (the single appended assistant message).
+	_, err = loop.callModel(context.Background(), state, RunRequest{Model: codex, MaxTokens: 256})
+	if err != nil {
+		t.Fatalf("callModel (iteration 2) failed: %v", err)
+	}
+
+	if seenPreviousID[0] != "" {
+		t.Fatalf("expected iteration 1 to have no previous_response_id, got %q", seenPreviousID[0])
+	}
+	if seenPreviousID[1] != "resp-1" {
+		t.Fatalf("expected iteration 2 to reuse resp-1, got %q", seenPreviousID[1])
+	}
+	if seenMessageCount[1] != 1 {
+		t.Fatalf("expected iteration 2's PreviousResponseMessageCount to be 1, got %d", seenMessageCount[1])
+	}
+}
+
+// fakeCompactionStrategy lets tests force AutoCompact's DidCompact outcome
+// without needing a real token-budget-driven compactor.
+type fakeCompactionStrategy struct {
+	didCompact        bool
+	compactedMessages []types.Message
+}
+
+func (f *fakeCompactionStrategy) AutoCompact(
+	ctx context.Context,
+	systemPrompt string,
+	messages []types.Message,
+	model types.ModelIdentifier,
+	sessionID types.SessionID,
+	turnID types.TurnID,
+	tracking *compact.TrackingState,
+) (compact.CompactionResult, error) {
+	if !f.didCompact {
+		return compact.CompactionResult{Messages: messages, DidCompact: false}, nil
+	}
+	return compact.CompactionResult{Messages: f.compactedMessages, DidCompact: true}, nil
+}
+
+func TestMaybeAutoCompactInvalidatesPreviousResponseID(t *testing.T) {
+	codex := types.ModelIdentifier{Provider: types.APIProviderCodex, Model: "gpt-5.6-sol"}
+	compacted := []types.Message{types.UserMessage("summary", "compacted history")}
+	loop := NewLoop(nil, nil, &fakeCompactionStrategy{didCompact: true, compactedMessages: compacted}, nil, nil, nil,
+		&LoopConfig{AutoCompact: true, EnableStreaming: false}, nil)
+
+	state := NewMutableState([]types.Message{types.UserMessage("msg-1", "hi")})
+	loop.recordPreviousResponse(state, codex, &types.APIResponse{ID: "resp-1"})
+	if state.PreviousResponseID == "" {
+		t.Fatal("expected the Codex response to be recorded first")
+	}
+
+	if err := loop.maybeAutoCompact(context.Background(), state, RunRequest{Model: codex}); err != nil {
+		t.Fatalf("maybeAutoCompact failed: %v", err)
+	}
+	if !state.Compacted {
+		t.Fatal("expected the fake compactor's DidCompact to be reflected in state")
+	}
+	if state.PreviousResponseID != "" {
+		t.Fatalf("expected PreviousResponseID to be invalidated after compaction, got %q", state.PreviousResponseID)
+	}
+	if state.PreviousResponseMessageCount != 0 {
+		t.Fatalf("expected PreviousResponseMessageCount to be reset to 0, got %d", state.PreviousResponseMessageCount)
+	}
+
+	apiReq := loop.buildAPIRequest(state, RunRequest{}, codex)
+	if apiReq.PreviousResponseID != "" {
+		t.Fatal("expected no continuation hint to be offered after compaction invalidated it")
 	}
 }
 

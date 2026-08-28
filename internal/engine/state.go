@@ -527,6 +527,22 @@ type MutableState struct {
 	// Compacted indicates if compaction occurred
 	Compacted bool
 
+	// PreviousResponseID and PreviousResponseMessageCount enable a provider
+	// that supports server-side conversation continuation (currently:
+	// Codex's Responses API previous_response_id) to send only the messages
+	// appended since the last successful same-provider response, instead of
+	// resending the whole growing Messages list on every internal iteration
+	// of a single turn's tool-use loop (up to MaxIterations). Populated in
+	// Loop.recordPreviousResponse after each successful model call;
+	// invalidated (reset to zero) the moment compaction changes Messages or
+	// a different provider answers, so a stale/mismatched reference can
+	// never be sent - worst case on invalidation is just falling back to
+	// the existing full-resend behavior. Scoped to a single Loop.Run call
+	// (one turn): MutableState is rebuilt fresh per turn, so there is no
+	// cross-turn or cross-restart persistence to keep consistent.
+	PreviousResponseID           string
+	PreviousResponseMessageCount int
+
 	// Iterations is the number of iterations performed
 	Iterations int
 
