@@ -183,6 +183,15 @@ func (c *Client) createCodexStreamResult(ctx context.Context, req types.APIReque
 // plain-JSON wire format for non-streaming callers to decode, so
 // non-streaming callers still need this same SSE reader, just without a
 // live callback.
+//
+// response.completed's usage object also carries input_tokens_details.
+// cached_tokens and output_tokens_details.reasoning_tokens (Responses API
+// shape - distinct from Chat Completions' prompt_tokens_details that
+// parseTokenUsage in helpers.go handles for other providers). Without
+// reading these, a reasoning model's lopsided input:output token ratio is
+// unexplainable from telemetry alone - there was previously no way to tell
+// whether it came from resent context, a cache miss, or genuine hidden
+// reasoning.
 func parseCodexSSEStream(ctx context.Context, body io.Reader, model types.ModelIdentifier, onChunk func(types.APIResponseChunk)) (*types.APIStreamResult, error) {
 	var text strings.Builder
 	toolCalls := make(map[string]*openAIStreamToolCallState) // keyed by call_id
@@ -248,8 +257,14 @@ streamLoop:
 						Message string `json:"message"`
 					} `json:"error"`
 					Usage *struct {
-						InputTokens  int `json:"input_tokens"`
-						OutputTokens int `json:"output_tokens"`
+						InputTokens        int `json:"input_tokens"`
+						OutputTokens       int `json:"output_tokens"`
+						InputTokensDetails *struct {
+							CachedTokens int `json:"cached_tokens"`
+						} `json:"input_tokens_details"`
+						OutputTokensDetails *struct {
+							ReasoningTokens int `json:"reasoning_tokens"`
+						} `json:"output_tokens_details"`
 					} `json:"usage"`
 				} `json:"response"`
 			}
@@ -327,6 +342,12 @@ streamLoop:
 					if event.Response.Usage != nil {
 						usage.InputTokens = event.Response.Usage.InputTokens
 						usage.OutputTokens = event.Response.Usage.OutputTokens
+						if details := event.Response.Usage.InputTokensDetails; details != nil {
+							usage.CachedTokens = details.CachedTokens
+						}
+						if details := event.Response.Usage.OutputTokensDetails; details != nil {
+							usage.ReasoningTokens = details.ReasoningTokens
+						}
 					}
 				}
 
