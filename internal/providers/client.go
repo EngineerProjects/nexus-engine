@@ -498,10 +498,15 @@ func (c *Client) buildAnthropicRequestBody(req types.APIRequest) (io.Reader, err
 		"messages":   req.Messages,
 	}
 
-	// Anthropic-style providers can consume structured system prompt blocks.
-	// Other providers currently fall back to the flattened prompt string so the
-	// runtime keeps one canonical prompt representation while the transport stays simple.
-	if len(req.SystemPromptBlocks) > 0 && c.provider == types.APIProviderAnthropic {
+	// Anthropic-style providers can consume structured system prompt blocks,
+	// preserving cache_control breakpoints. Foundry speaks the same Messages
+	// wire format as Anthropic (both route through this builder) and gets
+	// the same treatment for the same reason tools do just below — flattening
+	// here would silently drop Foundry's system-prompt cache_control instead
+	// of just not caching it. Other providers fall back to the flattened
+	// prompt string so the runtime keeps one canonical prompt representation
+	// while their transport stays simple.
+	if len(req.SystemPromptBlocks) > 0 && (c.provider == types.APIProviderAnthropic || c.provider == types.APIProviderFoundry) {
 		body["system"] = req.SystemPromptBlocks
 	} else if req.SystemPrompt != "" {
 		body["system"] = req.SystemPrompt
