@@ -291,16 +291,21 @@ Tests pour ces 3 points :
 
 ## 🧟 Code mort à surveiller (pas un bug actif, mais un piège pour plus tard)
 
-- [ ] `internal/providers/circuit_breaker.go:186` — `ExecuteWithTimeout`
-      n'est appelé nulle part aujourd'hui, mais applique un
-      `context.WithTimeout` (30s par défaut) sur toute la fonction passée —
-      si quelqu'un le câble un jour sur un appel de streaming sans y
-      penser, ça réintroduit exactement le bug Codex (mais à 30s au lieu de
-      120s, encore pire).
-- [ ] `internal/providers/config.go` — `Config.BuildAuthHeaders()` n'est
-      appelé nulle part ; la vraie logique d'auth vit dans
-      `adapter.go`'s `applyAuthHeaders`. À supprimer ou à documenter comme
-      tel pour éviter la confusion.
+- [x] `internal/providers/circuit_breaker.go:186` — `ExecuteWithTimeout` ✅ DOCUMENTÉ
+      N'est appelé nulle part aujourd'hui, mais applique un
+      `context.WithTimeout` sur toute la fonction passée — si quelqu'un le
+      câble un jour sur un appel de streaming sans y penser, ça
+      réintroduit la même classe de bug que Codex. A une couverture de
+      test substantielle (7 tests, y compris race/concurrency) suggérant
+      une conception délibérée pour un usage futur — supprimer aurait été
+      excessif. Un avertissement a été ajouté à son commentaire de doc au
+      lieu de le supprimer.
+- [x] `internal/providers/config.go` — `Config.BuildAuthHeaders()` ✅ SUPPRIMÉ
+      N'était appelé nulle part (zéro référence, y compris dans les tests)
+      ; la vraie logique d'auth vit dans `adapter.go`'s
+      `applyAuthHeaders`. C'était une copie dupliquée et non maintenue
+      (déjà désynchronisée — absence de garantie qu'elle reste correcte),
+      donc supprimée plutôt que documentée.
 - [ ] `internal/providers/transport/transport.go`,
       `internal/providers/transport.go` — scaffolding Bedrock/Vertex mort,
       SigV4 non implémenté, et son propre bug de timeout latent (voir
