@@ -36,6 +36,11 @@ type ContentBlock interface {
 // TextContent represents a text content block
 type TextContent struct {
 	Text string `json:"text"`
+	// CacheControl, when set, instructs Anthropic to cache all content up to
+	// and including this block. Only ever set on the last block of the last
+	// message in a request, mirroring how tool/system-prompt caching mark
+	// their own trailing breakpoint.
+	CacheControl *PromptCacheControl `json:"cache_control,omitempty"`
 }
 
 func (TextContent) ContentType() ContentType { return ContentTypeText }
@@ -67,6 +72,9 @@ type ToolResultContent struct {
 	Content   string          `json:"content"`
 	IsError   bool            `json:"is_error,omitempty"`
 	Metadata  *map[string]any `json:"metadata,omitempty"`
+	// CacheControl, when set, instructs Anthropic to cache all content up to
+	// and including this block. See TextContent.CacheControl.
+	CacheControl *PromptCacheControl `json:"cache_control,omitempty"`
 }
 
 func (ToolResultContent) ContentType() ContentType { return ContentTypeToolResult }
@@ -205,6 +213,9 @@ func marshalContentBlocks(blocks []ContentBlock) ([]json.RawMessage, error) {
 		switch content := block.(type) {
 		case TextContent:
 			payload = map[string]any{"type": ContentTypeText, "text": content.Text}
+			if content.CacheControl != nil {
+				payload["cache_control"] = content.CacheControl
+			}
 		case ImageContent:
 			payload = map[string]any{"type": ContentTypeImage, "source": content.Source}
 		case ToolUseContent:
@@ -216,6 +227,9 @@ func marshalContentBlocks(blocks []ContentBlock) ([]json.RawMessage, error) {
 			payload = map[string]any{"type": ContentTypeToolResult, "tool_use_id": content.ToolUseID, "content": content.Content, "is_error": content.IsError}
 			if content.Metadata != nil {
 				payload["metadata"] = *content.Metadata
+			}
+			if content.CacheControl != nil {
+				payload["cache_control"] = content.CacheControl
 			}
 		case ThinkingContent:
 			payload = map[string]any{"type": ContentTypeThinking, "thinking": content.Thinking}
@@ -245,12 +259,13 @@ func unmarshalContentBlocks(rawBlocks []json.RawMessage) ([]ContentBlock, error)
 		switch meta.Type {
 		case ContentTypeText:
 			var content struct {
-				Text string `json:"text"`
+				Text         string              `json:"text"`
+				CacheControl *PromptCacheControl `json:"cache_control"`
 			}
 			if err := json.Unmarshal(raw, &content); err != nil {
 				return nil, err
 			}
-			blocks = append(blocks, TextContent{Text: content.Text})
+			blocks = append(blocks, TextContent{Text: content.Text, CacheControl: content.CacheControl})
 		case ContentTypeImage:
 			var content struct {
 				Source struct {
@@ -282,15 +297,16 @@ func unmarshalContentBlocks(rawBlocks []json.RawMessage) ([]ContentBlock, error)
 			blocks = append(blocks, toolUse)
 		case ContentTypeToolResult:
 			var content struct {
-				ToolUseID string         `json:"tool_use_id"`
-				Content   string         `json:"content"`
-				IsError   bool           `json:"is_error"`
-				Metadata  map[string]any `json:"metadata"`
+				ToolUseID    string              `json:"tool_use_id"`
+				Content      string              `json:"content"`
+				IsError      bool                `json:"is_error"`
+				Metadata     map[string]any      `json:"metadata"`
+				CacheControl *PromptCacheControl `json:"cache_control"`
 			}
 			if err := json.Unmarshal(raw, &content); err != nil {
 				return nil, err
 			}
-			toolResult := ToolResultContent{ToolUseID: content.ToolUseID, Content: content.Content, IsError: content.IsError}
+			toolResult := ToolResultContent{ToolUseID: content.ToolUseID, Content: content.Content, IsError: content.IsError, CacheControl: content.CacheControl}
 			if content.Metadata != nil {
 				toolResult.Metadata = &content.Metadata
 			}
