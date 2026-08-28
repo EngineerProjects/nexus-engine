@@ -24,16 +24,24 @@ var (
 	codexJar     http.CookieJar
 )
 
+// getCodexHTTPClient returns the shared streaming client (see
+// newStreamingHTTPClient below) with the Cloudflare cookie jar attached.
+// This used to construct its own client with Timeout: 120*time.Second,
+// which - unlike every other provider - covers the entire request lifetime
+// including reading the streamed response body. A reasoning model doing
+// heavy tool use routinely takes longer than 120s to finish streaming a
+// single turn; the cutoff killed the request mid-stream, and that failure
+// (types.ErrCodeAPIResponse, not ErrCodeAPITimeout) was then treated as
+// non-recoverable, so the turn died outright with no retry.
 func getCodexHTTPClient() *http.Client {
 	codexJarOnce.Do(func() {
 		if jar, err := cookiejar.New(nil); err == nil {
 			codexJar = jar
 		}
 	})
-	return &http.Client{
-		Jar:     codexJar,
-		Timeout: 120 * time.Second,
-	}
+	client := newStreamingHTTPClient()
+	client.Jar = codexJar
+	return client
 }
 
 // newStreamingHTTPClient returns an http.Client suitable for long-running LLM
