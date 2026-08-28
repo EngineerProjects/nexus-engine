@@ -475,6 +475,60 @@ func anthropicToolsWithCacheControl(tools []types.APIToolDefinition, provider ty
 	return out
 }
 
+// anthropicMessagesWithCacheControl returns a copy of messages with
+// cache_control set on the last cacheable content block of the last message,
+// for Anthropic-compatible providers. Anthropic caches all content up to the
+// last cache_control breakpoint, so marking the tail of the growing
+// conversation/tool-result history — not just the system prompt and tool
+// definitions, which were the only things previously ever cached — lets a
+// long agentic loop reuse the cached prefix on every subsequent turn instead
+// of reprocessing the whole accumulated history from scratch each time.
+//
+// Only TextContent and ToolResultContent carry a CacheControl field (the two
+// block types that realistically end a request: the first user turn, or a
+// tool-result turn after the model calls tools). If the last message's last
+// block is neither, this is a no-op for that call — still correct, just not
+// cached until the tail naturally becomes cacheable again.
+// For other providers the input slice is returned as-is (no copy, no mutation).
+func anthropicMessagesWithCacheControl(messages []types.Message, provider types.APIProvider) []types.Message {
+	if len(messages) == 0 {
+		return messages
+	}
+	if provider != types.APIProviderAnthropic && provider != types.APIProviderFoundry {
+		return messages
+	}
+
+	lastMsgIdx := len(messages) - 1
+	lastMsg := messages[lastMsgIdx]
+	if len(lastMsg.Content) == 0 {
+		return messages
+	}
+	lastBlockIdx := len(lastMsg.Content) - 1
+
+	var cachedBlock types.ContentBlock
+	switch block := lastMsg.Content[lastBlockIdx].(type) {
+	case types.TextContent:
+		block.CacheControl = types.NewEphemeralPromptCacheControl()
+		cachedBlock = block
+	case types.ToolResultContent:
+		block.CacheControl = types.NewEphemeralPromptCacheControl()
+		cachedBlock = block
+	default:
+		return messages
+	}
+
+	outMessages := make([]types.Message, len(messages))
+	copy(outMessages, messages)
+
+	outContent := make([]types.ContentBlock, len(lastMsg.Content))
+	copy(outContent, lastMsg.Content)
+	outContent[lastBlockIdx] = cachedBlock
+
+	lastMsg.Content = outContent
+	outMessages[lastMsgIdx] = lastMsg
+	return outMessages
+}
+
 func isSafeMetadataHeader(key string) bool {
 	switch strings.ToLower(strings.TrimSpace(key)) {
 	case "content-type", "authorization", "x-api-key", "api-key", "anthropic-version":
@@ -495,7 +549,7 @@ func (c *Client) buildAnthropicRequestBody(req types.APIRequest) (io.Reader, err
 	body := map[string]any{
 		"model":      req.Model.ProviderModelName(),
 		"max_tokens": req.MaxTokens,
-		"messages":   req.Messages,
+		"messages":   anthropicMessagesWithCacheControl(req.Messages, c.provider),
 	}
 
 	// Anthropic-style providers can consume structured system prompt blocks,

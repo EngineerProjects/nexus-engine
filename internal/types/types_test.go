@@ -44,6 +44,64 @@ func TestToolUseContent(t *testing.T) {
 	}
 }
 
+// TestTextAndToolResultContentCacheControlRoundTrip verifies the fix that let
+// conversation/tool-result history participate in Anthropic prompt caching:
+// previously TextContent and ToolResultContent had no CacheControl field at
+// all, so nothing outside the (already-cached) system prompt and tool
+// definitions could ever be marked, no matter what request-building logic
+// did. Both the wire marshal shape and the round trip through Message's
+// custom (Un)MarshalJSON must preserve it.
+func TestTextAndToolResultContentCacheControlRoundTrip(t *testing.T) {
+	cc := NewEphemeralPromptCacheControl()
+
+	msg := Message{
+		ID:   "m1",
+		Role: RoleUser,
+		Content: []ContentBlock{
+			TextContent{Text: "hello", CacheControl: cc},
+			ToolResultContent{ToolUseID: "t1", Content: "result", CacheControl: cc},
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+
+	var raw struct {
+		Content []struct {
+			Type         string `json:"type"`
+			CacheControl *struct {
+				Type string `json:"type"`
+			} `json:"cache_control"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal raw: %v", err)
+	}
+	if len(raw.Content) != 2 {
+		t.Fatalf("expected 2 content blocks, got %d", len(raw.Content))
+	}
+	for i, block := range raw.Content {
+		if block.CacheControl == nil || block.CacheControl.Type != "ephemeral" {
+			t.Errorf("block %d (%s): expected ephemeral cache_control on the wire, got %+v", i, block.Type, block.CacheControl)
+		}
+	}
+
+	var roundTripped Message
+	if err := json.Unmarshal(data, &roundTripped); err != nil {
+		t.Fatalf("Message.UnmarshalJSON: %v", err)
+	}
+	text, ok := roundTripped.Content[0].(TextContent)
+	if !ok || text.CacheControl == nil || text.CacheControl.Type != "ephemeral" {
+		t.Errorf("TextContent.CacheControl did not round-trip: %+v", roundTripped.Content[0])
+	}
+	toolResult, ok := roundTripped.Content[1].(ToolResultContent)
+	if !ok || toolResult.CacheControl == nil || toolResult.CacheControl.Type != "ephemeral" {
+		t.Errorf("ToolResultContent.CacheControl did not round-trip: %+v", roundTripped.Content[1])
+	}
+}
+
 func TestPermissionResult(t *testing.T) {
 	// Test Allow
 	result := AllowWithUpdatedInput(nil)

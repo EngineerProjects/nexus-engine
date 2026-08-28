@@ -2925,6 +2925,140 @@ func TestAnthropicToolsWithCacheControl_FoundryAlsoGetsCache(t *testing.T) {
 	}
 }
 
+// TestAnthropicMessagesWithCacheControl verifies the fix for conversation/
+// tool-result history never being cached: previously only the system prompt
+// and tool definitions ever got a cache_control breakpoint, so in a long
+// agentic loop (many tool_use/tool_result rounds) the whole growing history
+// was reprocessed from scratch on every single call. The last cacheable
+// block of the last message should now get an ephemeral breakpoint too, for
+// Anthropic-compatible providers only, without mutating the input.
+func TestAnthropicMessagesWithCacheControl(t *testing.T) {
+	t.Run("marks last TextContent block for Anthropic", func(t *testing.T) {
+		messages := []types.Message{
+			types.UserMessage("m1", "hello"),
+		}
+		result := anthropicMessagesWithCacheControl(messages, types.APIProviderAnthropic)
+		text, ok := result[0].Content[0].(types.TextContent)
+		if !ok || text.CacheControl == nil {
+			t.Fatalf("expected last TextContent block to carry cache_control, got %+v", result[0].Content[0])
+		}
+		if orig, ok := messages[0].Content[0].(types.TextContent); !ok || orig.CacheControl != nil {
+			t.Error("original messages slice must not be mutated")
+		}
+	})
+
+	t.Run("marks last ToolResultContent block for Foundry", func(t *testing.T) {
+		messages := []types.Message{
+			{ID: "m1", Role: types.RoleUser, Content: []types.ContentBlock{
+				types.ToolResultContent{ToolUseID: "t1", Content: "ok"},
+			}},
+		}
+		result := anthropicMessagesWithCacheControl(messages, types.APIProviderFoundry)
+		toolResult, ok := result[0].Content[0].(types.ToolResultContent)
+		if !ok || toolResult.CacheControl == nil {
+			t.Fatalf("expected last ToolResultContent block to carry cache_control, got %+v", result[0].Content[0])
+		}
+	})
+
+	t.Run("only marks the trailing block, not earlier ones in the same message", func(t *testing.T) {
+		messages := []types.Message{
+			{ID: "m1", Role: types.RoleUser, Content: []types.ContentBlock{
+				types.TextContent{Text: "first"},
+				types.TextContent{Text: "last"},
+			}},
+		}
+		result := anthropicMessagesWithCacheControl(messages, types.APIProviderAnthropic)
+		first := result[0].Content[0].(types.TextContent)
+		last := result[0].Content[1].(types.TextContent)
+		if first.CacheControl != nil {
+			t.Error("only the trailing block should be marked")
+		}
+		if last.CacheControl == nil {
+			t.Error("the trailing block must be marked")
+		}
+	})
+
+	t.Run("no-op when the trailing block type is not cacheable", func(t *testing.T) {
+		messages := []types.Message{
+			{ID: "m1", Role: types.RoleAssistant, Content: []types.ContentBlock{
+				types.ToolUseContent{ID: "t1", Name: "read", Input: map[string]any{}},
+			}},
+		}
+		result := anthropicMessagesWithCacheControl(messages, types.APIProviderAnthropic)
+		if len(result) != len(messages) {
+			t.Fatalf("expected unchanged messages, got different length")
+		}
+	})
+
+	t.Run("not applied for non-Anthropic-compatible providers", func(t *testing.T) {
+		messages := []types.Message{types.UserMessage("m1", "hello")}
+		result := anthropicMessagesWithCacheControl(messages, types.APIProviderOpenAI)
+		text := result[0].Content[0].(types.TextContent)
+		if text.CacheControl != nil {
+			t.Error("OpenAI must not get cache_control")
+		}
+	})
+
+	t.Run("empty messages is a no-op", func(t *testing.T) {
+		result := anthropicMessagesWithCacheControl(nil, types.APIProviderAnthropic)
+		if result != nil {
+			t.Errorf("expected nil, got %v", result)
+		}
+	})
+}
+
+func TestBuildRequestBody_AnthropicMessagesHaveCacheControlOnTrailingBlock(t *testing.T) {
+	client := NewClient("key", types.APIProviderAnthropic)
+	req := types.APIRequest{
+		Model:     types.ModelIdentifier{Provider: types.APIProviderAnthropic, Model: "claude-sonnet-4-20250514"},
+		MaxTokens: 1024,
+		Messages: []types.Message{
+			types.UserMessage("m1", "hello"),
+			{ID: "m2", Role: types.RoleAssistant, Content: []types.ContentBlock{
+				types.ToolUseContent{ID: "t1", Name: "read", Input: map[string]any{}},
+			}},
+			{ID: "m3", Role: types.RoleUser, Content: []types.ContentBlock{
+				types.ToolResultContent{ToolUseID: "t1", Content: "file contents"},
+			}},
+		},
+	}
+
+	body, err := client.buildRequestBody(req)
+	if err != nil {
+		t.Fatalf("buildRequestBody: %v", err)
+	}
+	data, _ := io.ReadAll(body)
+
+	var payload struct {
+		Messages []struct {
+			Content []struct {
+				Type         string `json:"type"`
+				CacheControl *struct {
+					Type string `json:"type"`
+				} `json:"cache_control"`
+			} `json:"content"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(payload.Messages) != 3 {
+		t.Fatalf("expected 3 messages, got %d", len(payload.Messages))
+	}
+	lastMsg := payload.Messages[2]
+	lastBlock := lastMsg.Content[len(lastMsg.Content)-1]
+	if lastBlock.CacheControl == nil || lastBlock.CacheControl.Type != "ephemeral" {
+		t.Errorf("expected the last message's trailing tool_result block to carry cache_control, got %+v", lastBlock)
+	}
+	for i, msg := range payload.Messages[:2] {
+		for j, block := range msg.Content {
+			if block.CacheControl != nil {
+				t.Errorf("message %d block %d: only the final message's trailing block should carry cache_control", i, j)
+			}
+		}
+	}
+}
+
 func TestBuildRequestBody_AnthropicToolsHaveCacheControl(t *testing.T) {
 	client := NewClient("key", types.APIProviderAnthropic)
 	req := types.APIRequest{

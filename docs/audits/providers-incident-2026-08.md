@@ -167,20 +167,27 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
 
 ## 🟠 Bugs réels, fonctionnels mais faux
 
-- [ ] **Anthropic ne cache jamais l'historique de conversation, seulement le system prompt + les outils**
-      - [ ] `internal/types/message.go` — `TextContent`/`ToolResultContent`/
-            etc. n'ont structurellement **aucun champ `CacheControl`** ; rien
-            à marquer même si on voulait le faire aujourd'hui
-      - [ ] `internal/providers/client.go:474-494` — `buildAnthropicRequestBody`
-            envoie `req.Messages` sans aucune transformation/marquage
-      - [ ] Impact : dans une longue boucle d'outils (exactement le
-            scénario de l'incident), tout ce qui s'accumule (résultats
-            d'outils compris) est renvoyé sans bénéfice de cache à chaque
-            tour — le system prompt + les outils (déjà cachés) sont
-            généralement petits comparés à l'historique qui grossit
-      - [ ] Fix envisagé : ajouter `CacheControl` à `ToolResultContent`
-            (et/ou marquer le dernier message avant sérialisation),
-            même pattern que le cache déjà en place sur le dernier outil
+- [x] **Anthropic ne cache jamais l'historique de conversation, seulement le system prompt + les outils** ✅ FIXÉ
+      **Problème :** `internal/types/message.go` — `TextContent`/
+      `ToolResultContent` n'avaient structurellement **aucun champ
+      `CacheControl`** ; `buildAnthropicRequestBody` envoyait `req.Messages`
+      sans aucune transformation/marquage. Dans une longue boucle d'outils
+      (exactement le scénario de l'incident), tout ce qui s'accumule
+      (résultats d'outils compris) était renvoyé sans bénéfice de cache à
+      chaque tour.
+      **Fix :** `CacheControl *PromptCacheControl` ajouté à `TextContent` et
+      `ToolResultContent` (marshal/unmarshal + `cloneContentBlock` mis à
+      jour pour le préserver). Nouvelle `anthropicMessagesWithCacheControl`
+      (`internal/providers/client.go`) marque le dernier bloc cacheable
+      (texte ou résultat d'outil) du dernier message avant sérialisation,
+      même pattern que le cache déjà en place sur le dernier outil —
+      no-op sans mutation si le bloc final n'est pas d'un type cacheable
+      (ex. `ToolUseContent`), et no-op pour les providers non compatibles
+      Anthropic. Reste sous la limite de 4 breakpoints Anthropic (system +
+      outils + ce nouveau point = 3). Tests :
+      `TestTextAndToolResultContentCacheControlRoundTrip`,
+      `TestAnthropicMessagesWithCacheControl` (6 sous-cas),
+      `TestBuildRequestBody_AnthropicMessagesHaveCacheControlOnTrailingBlock`.
 
 - [x] **Foundry perd son cache de system prompt silencieusement** ✅ FIXÉ
       **Problème :** `internal/providers/client.go:484` ne préservait les
