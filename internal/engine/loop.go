@@ -715,6 +715,11 @@ func (l *Loop) maybeAutoCompact(ctx context.Context, state *MutableState, req Ru
 	if result.DidCompact {
 		state.Messages = result.Messages
 		state.Compacted = true
+		// Compaction rewrote Messages, so any previously recorded Codex
+		// continuation reference no longer describes a valid prefix of it -
+		// see recordPreviousResponse/buildAPIRequest.
+		state.PreviousResponseID = ""
+		state.PreviousResponseMessageCount = 0
 	}
 	return nil
 }
@@ -765,6 +770,7 @@ func (l *Loop) callModel(ctx context.Context, state *MutableState, req RunReques
 	if breaker := l.circuitBreaker(); breaker != nil {
 		breaker.RecordSuccess()
 	}
+	l.recordPreviousResponse(state, model, resp)
 	return resp, nil
 }
 
@@ -823,6 +829,7 @@ func (l *Loop) tryFallbackModel(
 			if breaker != nil {
 				breaker.RecordSuccess()
 			}
+			l.recordPreviousResponse(state, candidate, resp)
 			return resp, nil
 		}
 
@@ -848,7 +855,7 @@ func (l *Loop) tryFallbackModel(
 }
 
 func (l *Loop) buildAPIRequest(state *MutableState, req RunRequest, model types.ModelIdentifier) types.APIRequest {
-	return types.APIRequest{
+	apiReq := types.APIRequest{
 		Model:              model,
 		Messages:           state.Messages,
 		MaxTokens:          req.MaxTokens,
@@ -858,6 +865,35 @@ func (l *Loop) buildAPIRequest(state *MutableState, req RunRequest, model types.
 		Stream:             l.config.EnableStreaming,
 		OutputSchema:       req.OutputSchema,
 	}
+	// Only offer the continuation hint to the same provider that produced
+	// it, and only while the message count it was recorded against still
+	// matches what's about to be sent (see recordPreviousResponse and
+	// maybeAutoCompact's invalidation) - a mismatch means either compaction
+	// rewrote history or a different provider answered in between, and the
+	// stored reference no longer describes a valid prefix of Messages.
+	if state.PreviousResponseID != "" &&
+		model.Provider == types.APIProviderCodex &&
+		state.PreviousResponseMessageCount <= len(state.Messages) {
+		apiReq.PreviousResponseID = state.PreviousResponseID
+		apiReq.PreviousResponseMessageCount = state.PreviousResponseMessageCount
+	}
+	return apiReq
+}
+
+// recordPreviousResponse updates state's continuation hint after a
+// successful model call. A Codex response records its own ID + the message
+// count it was generated against, so the next iteration can send only the
+// delta. Any other provider answering invalidates whatever was recorded,
+// since the growing Messages list has now diverged from what the stored
+// Codex response chain actually knows about.
+func (l *Loop) recordPreviousResponse(state *MutableState, model types.ModelIdentifier, resp *types.APIResponse) {
+	if model.Provider == types.APIProviderCodex && resp != nil && resp.ID != "" {
+		state.PreviousResponseID = resp.ID
+		state.PreviousResponseMessageCount = len(state.Messages)
+		return
+	}
+	state.PreviousResponseID = ""
+	state.PreviousResponseMessageCount = 0
 }
 
 func (l *Loop) sendAPIRequest(ctx context.Context, apiReq types.APIRequest, onChunk func(types.APIResponseChunk)) (*types.APIResponse, error) {

@@ -213,6 +213,18 @@ type APIRequest struct {
 	// given schema. Providers with native support (OpenAI, Gemini) use their
 	// structured-output API. Other providers receive a system message injection.
 	OutputSchema *schema.StructuredOutputInfo `json:"output_schema,omitempty"`
+
+	// PreviousResponseID and PreviousResponseMessageCount are an optional
+	// hint for a provider that supports server-side conversation
+	// continuation (currently only Codex's Responses API
+	// previous_response_id): if set, Messages[PreviousResponseMessageCount:]
+	// are the only messages new since that stored response, so a supporting
+	// provider MAY send just those plus the reference instead of the full
+	// Messages list. A provider that doesn't support this simply ignores
+	// both fields and sends the full Messages list as before - this is a
+	// pure optimization hint, never a correctness requirement.
+	PreviousResponseID           string `json:"-"`
+	PreviousResponseMessageCount int    `json:"-"`
 }
 
 // APIChunkType represents the type of chunk in a streaming response
