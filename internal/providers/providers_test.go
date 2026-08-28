@@ -3053,6 +3053,52 @@ func TestBuildRequestBody_AnthropicSystemPromptBlocksWithCache(t *testing.T) {
 	}
 }
 
+// TestBuildRequestBody_FoundrySystemPromptBlocksWithCache verifies the fix for
+// Foundry silently losing its system-prompt cache_control: it speaks the same
+// Anthropic Messages wire format and shares this request builder, but was
+// gated out of the structured-block path and fell back to
+// FlattenSystemPromptBlocks, which drops CacheControl entirely.
+func TestBuildRequestBody_FoundrySystemPromptBlocksWithCache(t *testing.T) {
+	client := NewClient("key", types.APIProviderFoundry)
+	req := types.APIRequest{
+		Model:     types.ModelIdentifier{Provider: types.APIProviderFoundry, Model: "claude-sonnet-4-20250514"},
+		MaxTokens: 1024,
+		Messages:  []types.Message{types.UserMessage("m1", "hello")},
+		SystemPromptBlocks: []types.SystemPromptBlock{
+			types.NewTextSystemPromptBlock("stable content", types.NewEphemeralPromptCacheControl()),
+			types.NewTextSystemPromptBlock("dynamic content", nil),
+		},
+	}
+
+	body, err := client.buildRequestBody(req)
+	if err != nil {
+		t.Fatalf("buildRequestBody: %v", err)
+	}
+	data, _ := io.ReadAll(body)
+
+	var payload struct {
+		System []struct {
+			Type         string `json:"type"`
+			Text         string `json:"text"`
+			CacheControl *struct {
+				Type string `json:"type"`
+			} `json:"cache_control"`
+		} `json:"system"`
+	}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if len(payload.System) != 2 {
+		t.Fatalf("expected 2 system blocks, got %d", len(payload.System))
+	}
+	if payload.System[0].CacheControl == nil || payload.System[0].CacheControl.Type != "ephemeral" {
+		t.Error("stable block must have ephemeral cache_control")
+	}
+	if payload.System[1].CacheControl != nil {
+		t.Error("dynamic block must not have cache_control")
+	}
+}
+
 // TestGetCodexHTTPClientHasNoBodyCoveringTimeout guards against regressing to
 // the old getCodexHTTPClient behavior: it used to set http.Client.Timeout,
 // which (unlike every other provider's newStreamingHTTPClient) covers the

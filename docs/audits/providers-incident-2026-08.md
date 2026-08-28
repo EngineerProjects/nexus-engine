@@ -107,7 +107,7 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
 
 ## 🔴 Providers complètement cassés
 
-- [ ] **WorkersAI ne peut pas fonctionner**
+- [ ] **WorkersAI ne peut pas fonctionner** *(chantier séparé — voir note)*
       - [ ] `internal/providers/adapter.go:50-68` — absent de
             `adapterForProvider`, tombe sur `anthropicAdapter` par défaut
             (mauvaise forme de requête, mauvaise auth `x-api-key`)
@@ -119,6 +119,14 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
             Cloudflare (`api.cloudflare.com/client/v4/accounts/{account_id}/ai/...`)
       - [ ] Aucun champ `account_id` dans `Config`, pourtant requis par
             l'API réelle de Cloudflare
+      - [ ] **Investigation (28/08) :** un `account_id` Cloudflare n'est pas
+            un simple champ interne — il devrait suivre le même chemin que
+            `ProjectID` de Vertex (`ANTHROPIC_VERTEX_PROJECT_ID`), câblé
+            jusqu'à la couche publique `pkg/config/provider_catalog.go` +
+            `cmd/cli/config.go` (assistant de configuration des identifiants,
+            stockage credential). Ce n'est donc pas un bugfix isolé mais un
+            changement d'UX de configuration publique — à traiter dans le
+            même chantier que Bedrock/Vertex plutôt qu'en correctif rapide.
 
 - [ ] **Bedrock et Vertex ne peuvent pas fonctionner**
       - [ ] `internal/providers/config.go:395-410` — aucune `BaseURL` par
@@ -174,15 +182,18 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
             (et/ou marquer le dernier message avant sérialisation),
             même pattern que le cache déjà en place sur le dernier outil
 
-- [ ] **Foundry perd son cache de system prompt silencieusement**
-      - [ ] `internal/providers/client.go:484` — ne préserve les
-            `SystemPromptBlocks` structurés (avec `cache_control`) que pour
-            `provider == APIProviderAnthropic` ; Foundry tombe sur
-            `FlattenSystemPromptBlocks` qui jette le `CacheControl`
-      - [ ] Incohérent avec le cache des outils, qui lui fonctionne bien
-            pour Foundry (`client.go:449`, testé)
-      - [ ] Aucun test ne couvre le chemin system-block de Foundry
-            (`providers_test.go:2999` ne teste qu'Anthropic)
+- [x] **Foundry perd son cache de system prompt silencieusement** ✅ FIXÉ
+      **Problème :** `internal/providers/client.go:484` ne préservait les
+      `SystemPromptBlocks` structurés (avec `cache_control`) que pour
+      `provider == APIProviderAnthropic` ; Foundry tombait sur
+      `FlattenSystemPromptBlocks` qui jette le `CacheControl`. Incohérent
+      avec le cache des outils, qui lui fonctionnait déjà pour Foundry
+      (`client.go:449`, testé). Aucun test ne couvrait le chemin
+      system-block de Foundry.
+      **Fix :** la condition inclut maintenant aussi
+      `APIProviderFoundry`, qui parle le même format Anthropic Messages et
+      partage ce même constructeur de requête. Test :
+      `TestBuildRequestBody_FoundrySystemPromptBlocksWithCache`.
 
 - [ ] **Synchronisation de modèles cassée pour MiniMax et WorkersAI**
       - [ ] `internal/providers/fetch.go:71-97` — `DefaultBaseURL()` n'a pas
