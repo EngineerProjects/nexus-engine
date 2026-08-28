@@ -11,6 +11,70 @@ Ce fichier sert de todo-list pour s'assurer qu'on corrige vraiment tout.
 
 ---
 
+## 🔴 Trouvé via test réel en direct (28/08) — deux bugs qu'aucune vérification de doc n'aurait révélés
+
+Après avoir corrigé tout ce qui était vérifiable contre la documentation
+officielle, un test réel contre un vrai compte ChatGPT Pro connecté (via
+`~/.codex/auth.json`, le même que seshat-ui) a immédiatement révélé deux
+bugs que la lecture de doc ne pouvait pas attraper — l'un touchant
+littéralement tous les providers avec des alias, l'autre cassant
+totalement Codex depuis la sortie de `previous_response_id` (v1.2.19).
+
+- [x] **Les alias de modèles n'étaient jamais réellement appliqués à la requête envoyée** ✅ FIXÉ
+      **Problème :** `Config.ResolveModel` n'était appelé que dans
+      `GetEndpoint` — utile seulement pour les providers dont l'URL
+      embarque le modèle (Gemini). Tous les providers OpenAI-compatibles
+      et Codex mettent le modèle dans le corps JSON via
+      `ModelIdentifier.ProviderModelName()`, qui n'a aucun accès au
+      `ModelAliasMapping` (son propre commentaire disait déjà
+      *"TODO: wire up provider config for model resolution"*). Confirmé
+      en direct : `codex:default` envoyait littéralement `"default"` à
+      l'API réelle, rejeté avec
+      `{"detail":"The 'default' model is not supported when using Codex
+      with a ChatGPT account."}`. Ça veut dire que **tous** les alias de
+      **tous** les providers (pas seulement Codex) étaient silencieusement
+      non-fonctionnels contre une vraie API.
+      **Fix :** nouvelle `Client.resolveRequestModel`, appelée en tête de
+      chacun des 3 points d'entrée publics (`CreateMessage`,
+      `CreateMessageStreamResultWithCallback`, `CreateMessageStream`) —
+      chaque adaptateur (corps ET endpoint) voit maintenant le modèle
+      résolu de façon cohérente. Tests :
+      `TestResolveRequestModel_AppliesAliasMapping`,
+      `TestCreateMessage_SendsResolvedModelInRequestBody` (bout-en-bout
+      via un vrai serveur de test).
+
+- [x] **Codex était cassé pour tout compte ChatGPT réel depuis `previous_response_id` (v1.2.19)** ✅ FIXÉ
+      **Problème :** confirmé en direct, `chatgpt.com/backend-api/codex`
+      rejette `"store": true` sans appel possible :
+      `{"detail":"Store must be set to false"}`. Or `previous_response_id`
+      ne peut référencer qu'une réponse réellement stockée côté serveur —
+      le mécanisme entier ne pouvait donc jamais fonctionner pour ce
+      backend, contrairement à l'hypothèse de la PR d'origine (basée sur
+      le comportement documenté de l'API Responses standard, pas testée
+      contre le vrai backend ChatGPT-account).
+      **Fix :** `store` repassé à `false` de façon permanente ;
+      `recordPreviousResponse` est maintenant un no-op permanent pour
+      Codex (au lieu de peupler un indice qui aurait fait échouer un appel
+      suivant). La tuyauterie autour (champs `APIRequest`/`MutableState`,
+      lecture dans `buildAPIRequest`) reste en place mais inerte, au cas
+      où un chemin compatible `store: true` serait trouvé plus tard pour
+      ce backend. Tests mis à jour :
+      `TestRecordPreviousResponseNeverCapturesForCodex`,
+      `TestCallModelNeverChainsPreviousResponseIDAcrossIterations`,
+      `TestMaybeAutoCompactInvalidatesPreviousResponseID` (reste un garde-fou
+      défensif), `TestBuildCodexRequestBody_*` (assertions `store`
+      corrigées).
+
+**Leçon retenue :** la vérification contre la documentation officielle
+(comme pour MiniMax/WorkersAI/DeepSeek plus bas) élimine une classe de
+bugs (mauvais domaine, endpoint déprécié) mais pas une autre — un
+comportement serveur réel qui diverge de ce que la doc décrit, ou une
+combinaison de champs qui n'a simplement jamais été testée en conditions
+réelles. Les deux bugs ci-dessus n'auraient jamais été trouvés sans un
+appel réel.
+
+---
+
 ## ✅ Déjà corrigé (v1.2.16 → v1.2.19)
 
 - [x] **Titre de session généré après la première réponse au lieu d'avant**

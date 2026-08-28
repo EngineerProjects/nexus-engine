@@ -24,21 +24,25 @@ import (
 //   - SSE events: response.output_text.delta, response.output_item.done, response.completed, response.failed
 
 func (c *Client) buildCodexRequestBody(req types.APIRequest) (io.Reader, error) {
-	// Always store the response server-side - not just on calls that reuse
-	// a prior reference - so any call can become the anchor the *next*
-	// iteration continues from (see engine/loop.go's recordPreviousResponse
-	// and buildAPIRequest). This matches how the real Codex CLI this
-	// integration impersonates (see the codex_cli_rs User-Agent below)
-	// actually operates for multi-turn conversations; the previous
-	// hardcoded "store": false meant every internal iteration of a single
-	// turn's tool-use loop resent the entire, ever-growing message history
-	// from scratch - a real contributor to a production incident where one
-	// browse sub-agent turn accumulated 107k input tokens over 36+ minutes.
+	// "store" MUST be false: confirmed live against a real ChatGPT-account
+	// session, the chatgpt.com/backend-api/codex backend this provider talks
+	// to rejects "store": true outright ({"detail":"Store must be set to
+	// false"}) - unlike the standard OpenAI Responses API, which this
+	// provider does not use (see the file header: this always targets the
+	// ChatGPT-account backend, never api.openai.com).
+	//
+	// An earlier version of this function set "store": true to let each call
+	// become the anchor a later iteration continues from via
+	// previous_response_id, avoiding resending the whole growing message
+	// history every iteration of a tool-use loop (the previous_response_id
+	// fields on APIRequest/MutableState, and engine/loop.go's
+	// recordPreviousResponse/buildAPIRequest wiring, are still present but
+	// inert now - recordPreviousResponse never populates them for Codex, so
+	// this function's previous_response_id branch below never fires. Kept
+	// rather than torn out in case a store-compatible path for this backend
+	// is found later.
 	previousResponseID := ""
 	if req.PreviousResponseID != "" && req.PreviousResponseMessageCount <= len(req.Messages) {
-		// Only the messages appended since that stored response need to be
-		// sent - the Responses API reconstructs the rest server-side from
-		// previous_response_id.
 		previousResponseID = req.PreviousResponseID
 		req.Messages = req.Messages[req.PreviousResponseMessageCount:]
 	}
@@ -49,7 +53,7 @@ func (c *Client) buildCodexRequestBody(req types.APIRequest) (io.Reader, error) 
 		"model":  req.Model.ProviderModelName(),
 		"input":  input,
 		"stream": true,
-		"store":  true,
+		"store":  false,
 	}
 	if previousResponseID != "" {
 		body["previous_response_id"] = previousResponseID
