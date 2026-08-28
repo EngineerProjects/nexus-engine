@@ -152,7 +152,14 @@ func DefaultConfigs() map[types.APIProvider]*Config {
 		},
 		types.APIProviderMiniMax: {
 			Provider: types.APIProviderMiniMax,
-			BaseURL:  "https://api.minimax.chat/v1/text/chatcompletion_v2",
+			// api.minimax.chat is not a real MiniMax domain (verified against
+			// platform.minimax.io's own docs); api.minimax.io is the current
+			// international host (api.minimaxi.com for mainland China). The
+			// old /v1/text/chatcompletion_v2 path is also documented
+			// deprecated in favor of the standard OpenAI-compatible
+			// /v1/chat/completions, so BaseURL is now a real API root like
+			// every other OpenAI-compatible provider here.
+			BaseURL: "https://api.minimax.io/v1",
 			ModelAliasMapping: map[string]string{
 				"m2.7":      "MiniMax-M2.7",
 				"m2.7-fast": "MiniMax-M2.7-highspeed",
@@ -327,15 +334,14 @@ func (c *Config) GetEndpoint(model string) string {
 	case types.APIProviderAnthropic, types.APIProviderVertex, types.APIProviderFoundry:
 		return c.GetBaseURL() + "/v1/messages"
 
-	case types.APIProviderOpenAI, types.APIProviderOpenRouter, types.APIProviderZAi, types.APIProviderMistral, types.APIProviderDeepSeek, types.APIProviderOpenCode, types.APIProviderKimi:
+	case types.APIProviderOpenAI, types.APIProviderOpenRouter, types.APIProviderZAi, types.APIProviderMistral, types.APIProviderDeepSeek, types.APIProviderOpenCode, types.APIProviderKimi, types.APIProviderMiniMax:
+		// MiniMax used to need a special case here: its old BaseURL
+		// (api.minimax.chat/v1/text/chatcompletion_v2) was already a full
+		// endpoint path, so appending "/chat/completions" produced a 404.
+		// That domain and path are gone now — MiniMax's BaseURL is a real
+		// API root (api.minimax.io/v1) like every other provider in this
+		// case, using the current, non-deprecated /v1/chat/completions.
 		return c.GetBaseURL() + "/chat/completions"
-
-	case types.APIProviderMiniMax:
-		// Unlike the other OpenAI-compatible providers, MiniMax's base URL
-		// is already the full ChatCompletion v2 endpoint path
-		// (https://api.minimax.chat/v1/text/chatcompletion_v2), not an API
-		// root — appending "/chat/completions" produced a 404.
-		return c.GetBaseURL()
 
 	case types.APIProviderGemini:
 		return c.GetBaseURL() + "/models/" + resolvedModel + ":generateContent"
@@ -373,7 +379,7 @@ var defaultBaseURLs = map[types.APIProvider]string{
 	types.APIProviderGemini:     "https://generativelanguage.googleapis.com/v1beta",
 	types.APIProviderZAi:        "https://api.z.ai/api/paas/v4",
 	types.APIProviderOpenRouter: "https://openrouter.ai/api/v1",
-	types.APIProviderMiniMax:    "https://api.minimax.chat/v1/text/chatcompletion_v2",
+	types.APIProviderMiniMax:    "https://api.minimax.io/v1",
 	types.APIProviderWorkersAI:  "https://api.cloudflare.com/client/v4",
 	types.APIProviderFoundry:    "https://your-resource.services.ai.azure.com/anthropic/v1",
 	types.APIProviderMistral:    "https://api.mistral.ai/v1",
