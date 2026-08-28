@@ -365,8 +365,15 @@ func (c *Config) GetEndpoint(model string) string {
 	case types.APIProviderAnthropic, types.APIProviderVertex, types.APIProviderFoundry:
 		return c.GetBaseURL() + "/v1/messages"
 
-	case types.APIProviderOpenAI, types.APIProviderOpenRouter, types.APIProviderMiniMax, types.APIProviderZAi, types.APIProviderMistral, types.APIProviderDeepSeek, types.APIProviderOpenCode, types.APIProviderKimi:
+	case types.APIProviderOpenAI, types.APIProviderOpenRouter, types.APIProviderZAi, types.APIProviderMistral, types.APIProviderDeepSeek, types.APIProviderOpenCode, types.APIProviderKimi:
 		return c.GetBaseURL() + "/chat/completions"
+
+	case types.APIProviderMiniMax:
+		// Unlike the other OpenAI-compatible providers, MiniMax's base URL
+		// is already the full ChatCompletion v2 endpoint path
+		// (https://api.minimax.chat/v1/text/chatcompletion_v2), not an API
+		// root — appending "/chat/completions" produced a 404.
+		return c.GetBaseURL()
 
 	case types.APIProviderGemini:
 		return c.GetBaseURL() + "/models/" + resolvedModel + ":generateContent"

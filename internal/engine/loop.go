@@ -1231,10 +1231,27 @@ func (l *Loop) isRecoverableError(err error) bool {
 		return false
 	}
 	if engineErr, ok := err.(*types.EngineError); ok {
-		return engineErr.IsRetryable()
+		if engineErr.IsRetryable() {
+			return true
+		}
+		// Every provider's stream parser wraps body-read/decode I/O errors as
+		// ErrCodeAPIResponse, whether the cause was a transient dropped
+		// connection or a genuinely malformed payload. IsRetryable() treats
+		// that code as permanent, so a mid-stream socket death (the incident
+		// that motivated this check) was never retried. Fall through to the
+		// structured network classifier on the wrapped cause instead of
+		// trusting the generic code alone.
+		if engineErr.Code == types.ErrCodeAPIResponse && engineErr.Err != nil {
+			return l.isRecoverableNetworkError(engineErr.Err)
+		}
+		return false
 	}
 	// For non-EngineErrors (network errors, etc.) use the structured classifier
 	// rather than brittle string matching.
+	return l.isRecoverableNetworkError(err)
+}
+
+func (l *Loop) isRecoverableNetworkError(err error) bool {
 	switch providerretry.ClassifyHTTPError(err, 0) {
 	case providerretry.RetryClassificationClientError,
 		providerretry.RetryClassificationAuthError:
