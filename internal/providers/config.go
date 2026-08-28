@@ -201,13 +201,18 @@ func DefaultConfigs() map[types.APIProvider]*Config {
 		types.APIProviderCodex: {
 			Provider: types.APIProviderCodex,
 			BaseURL:  "https://chatgpt.com/backend-api/codex",
+			// gpt-5.2-codex/gpt-5.3-codex previously targeted here are
+			// confirmed broken against a real ChatGPT-account session (see
+			// the comment on this provider's catalog entry in registry.go)
+			// - these aliases now point at the models that catalog confirms
+			// actually work. The "5.2"/"5.3" shorthand aliases are removed
+			// rather than silently repointed to a different version.
 			ModelAliasMapping: map[string]string{
-				"default":    "gpt-5.3-codex",
-				"codex":      "gpt-5.3-codex",
+				"default":    "gpt-5.6-sol",
+				"codex":      "gpt-5.6-sol",
 				"mini":       "gpt-5.4-mini",
 				"codex-mini": "gpt-5.4-mini",
-				"5.2":        "gpt-5.2-codex",
-				"5.3":        "gpt-5.3-codex",
+				"5.5":        "gpt-5.5",
 			},
 		},
 		types.APIProviderDeepSeek: {
