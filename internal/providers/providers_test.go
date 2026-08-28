@@ -3036,3 +3036,21 @@ func TestBuildRequestBody_AnthropicSystemPromptBlocksWithCache(t *testing.T) {
 		t.Error("dynamic block must not have cache_control")
 	}
 }
+
+// TestGetCodexHTTPClientHasNoBodyCoveringTimeout guards against regressing to
+// the old getCodexHTTPClient behavior: it used to set http.Client.Timeout,
+// which (unlike every other provider's newStreamingHTTPClient) covers the
+// entire request lifetime including reading a streamed response body. A
+// reasoning model doing heavy tool use routinely takes longer than a short
+// fixed timeout to finish streaming a single turn - the cutoff killed the
+// request mid-stream, and that failure was then classified as non-retryable,
+// so the whole turn died outright.
+func TestGetCodexHTTPClientHasNoBodyCoveringTimeout(t *testing.T) {
+	client := getCodexHTTPClient()
+	if client.Timeout != 0 {
+		t.Fatalf("expected no client-level Timeout (it would cut off long-running streams), got %v", client.Timeout)
+	}
+	if client.Jar == nil {
+		t.Fatal("expected the Cloudflare cookie jar to still be attached")
+	}
+}

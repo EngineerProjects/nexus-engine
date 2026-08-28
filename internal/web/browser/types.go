@@ -42,6 +42,7 @@ type Config struct {
 	MaxPagesPerSession    int
 	MaxSnapshotText       int
 	MaxSnapshotElements   int
+	MaxScreenshotBytes    int
 	MaxActionsPerSession  int
 	MaxRepeatedAction     int
 	MaxSessionAge         time.Duration
@@ -66,6 +67,7 @@ func DefaultConfig() *Config {
 		MaxPagesPerSession:    5,
 		MaxSnapshotText:       4000,
 		MaxSnapshotElements:   40,
+		MaxScreenshotBytes:    2 * 1024 * 1024, // 2MB raw PNG bytes (~2.7MB base64)
 		MaxActionsPerSession:  64,
 		MaxRepeatedAction:     6,
 		MaxSessionAge:         30 * time.Minute,
@@ -153,12 +155,20 @@ type HeadingInfo struct {
 type Screenshot struct {
 	Page          PageInfo  `json:"page"`
 	MimeType      string    `json:"mime_type"`
-	DataBase64    string    `json:"data_base64"`
+	DataBase64    string    `json:"data_base64,omitempty"`
 	Bytes         int       `json:"bytes"`
 	PersistedPath string    `json:"persisted_path,omitempty"`
 	PersistedSize int       `json:"persisted_size,omitempty"`
 	FullPage      bool      `json:"full_page"`
 	TakenAt       time.Time `json:"taken_at"`
+	// Truncated is true when the captured image exceeded
+	// Config.MaxScreenshotBytes and DataBase64 was omitted - unlike
+	// Snapshot.Text (capped at MaxSnapshotText), nothing previously bounded
+	// screenshot payload size, so a single large capture (or several,
+	// repeated and retained across a long tool-use-heavy turn) could inflate
+	// conversation token usage unboundedly. The image is still written to
+	// PersistedPath either way.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // NetworkEntry is a compact browser network activity record retained per session.

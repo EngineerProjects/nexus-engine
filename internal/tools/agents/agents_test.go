@@ -241,3 +241,52 @@ func TestNowMs(t *testing.T) {
 		t.Errorf("nowMs() = %d, want in [%d, %d]", ms, before, after)
 	}
 }
+
+// ─── spawn_agent MaxTurns resolution ───────────────────────────────────────
+// Guards against regressing to a flat default that ignores each built-in
+// agent's own designed turn budget - see resolveSpawnAgentDef/
+// resolveSpawnAgentMaxTurns's doc comments for the incident this fixes.
+
+func TestResolveSpawnAgentDef_BuiltInFallback(t *testing.T) {
+	def := resolveSpawnAgentDef(nil, coreagent.AgentTypeBrowse)
+	if def == nil {
+		t.Fatal("expected the built-in browse agent definition to resolve with a nil registry")
+	}
+	if def.MaxTurns != 35 {
+		t.Fatalf("expected browse agent's MaxTurns to be 35, got %d", def.MaxTurns)
+	}
+}
+
+func TestResolveSpawnAgentDef_UnknownType(t *testing.T) {
+	if def := resolveSpawnAgentDef(nil, "not-a-real-agent-type"); def != nil {
+		t.Fatalf("expected nil for an unknown agent type, got %+v", def)
+	}
+}
+
+func TestResolveSpawnAgentMaxTurns(t *testing.T) {
+	browseDef := resolveSpawnAgentDef(nil, coreagent.AgentTypeBrowse)
+
+	t.Run("uses the agent's own MaxTurns when the caller doesn't override", func(t *testing.T) {
+		if got := resolveSpawnAgentMaxTurns(browseDef, 0, false); got != 35 {
+			t.Fatalf("expected browse's own MaxTurns (35), got %d", got)
+		}
+	})
+
+	t.Run("explicit max_turns always wins", func(t *testing.T) {
+		if got := resolveSpawnAgentMaxTurns(browseDef, 20, true); got != 20 {
+			t.Fatalf("expected explicit override (20) to win over browse's own MaxTurns, got %d", got)
+		}
+	})
+
+	t.Run("falls back to 10 when there is no agent definition", func(t *testing.T) {
+		if got := resolveSpawnAgentMaxTurns(nil, 0, false); got != 10 {
+			t.Fatalf("expected fallback default of 10, got %d", got)
+		}
+	})
+
+	t.Run("ignores an explicit override below 1", func(t *testing.T) {
+		if got := resolveSpawnAgentMaxTurns(browseDef, 0, true); got != 35 {
+			t.Fatalf("expected an out-of-range explicit value to fall back to browse's own MaxTurns (35), got %d", got)
+		}
+	})
+}
