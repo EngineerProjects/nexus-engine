@@ -44,6 +44,17 @@ func getCodexHTTPClient() *http.Client {
 	return client
 }
 
+// defaultResponseHeaderTimeout bounds how long we wait for the first response
+// byte (headers) from a remote API before giving up on the connection.
+const defaultResponseHeaderTimeout = 60 * time.Second
+
+// ollamaResponseHeaderTimeout is longer than the default: unlike a remote API
+// that's already warm and serving, a local Ollama request can legitimately
+// block behind loading a large model into memory (disk read, or CPU-only
+// inference startup) before it emits a single byte, which routinely exceeds
+// 60s on constrained hardware.
+const ollamaResponseHeaderTimeout = 5 * time.Minute
+
 // newStreamingHTTPClient returns an http.Client suitable for long-running LLM
 // streaming responses. The key difference from a standard client is that
 // http.Client.Timeout is NOT set — that field applies to the entire request
@@ -57,10 +68,14 @@ func getCodexHTTPClient() *http.Client {
 // The stream body itself is bounded only by context cancellation (user ctrl+c,
 // session close, or the engine's own cancellation logic).
 func newStreamingHTTPClient() *http.Client {
+	return newStreamingHTTPClientWithHeaderTimeout(defaultResponseHeaderTimeout)
+}
+
+func newStreamingHTTPClientWithHeaderTimeout(responseHeaderTimeout time.Duration) *http.Client {
 	return &http.Client{
 		Transport: &http.Transport{
 			TLSHandshakeTimeout:   15 * time.Second,
-			ResponseHeaderTimeout: 60 * time.Second,
+			ResponseHeaderTimeout: responseHeaderTimeout,
 			ExpectContinueTimeout: 1 * time.Second,
 			MaxIdleConns:          20,
 			IdleConnTimeout:       90 * time.Second,
@@ -111,6 +126,21 @@ func (c *Client) resolveAdapter() providerAdapter {
 	return adapterForProvider(c.provider)
 }
 
+// httpClientForProvider returns the streaming http.Client appropriate for the
+// given provider: Codex needs the Cloudflare cookie jar, Ollama needs a longer
+// ResponseHeaderTimeout to tolerate local model load time, everything else
+// gets the default streaming client.
+func httpClientForProvider(provider types.APIProvider) *http.Client {
+	switch provider {
+	case types.APIProviderCodex:
+		return getCodexHTTPClient()
+	case types.APIProviderOllama:
+		return newStreamingHTTPClientWithHeaderTimeout(ollamaResponseHeaderTimeout)
+	default:
+		return newStreamingHTTPClient()
+	}
+}
+
 // NewClient creates a new API client
 func NewClient(apiKey string, providerType types.APIProvider) *Client {
 	// Create provider config for model resolution
@@ -120,12 +150,7 @@ func NewClient(apiKey string, providerType types.APIProvider) *Client {
 	}
 	providerConfig.APIKey = apiKey
 
-	var httpClient *http.Client
-	if providerType == types.APIProviderCodex {
-		httpClient = getCodexHTTPClient()
-	} else {
-		httpClient = newStreamingHTTPClient()
-	}
+	httpClient := httpClientForProvider(providerType)
 
 	return &Client{
 		apiKey:         apiKey,
@@ -170,12 +195,7 @@ func newClientWithConfig(apiKey string, config *Config) *Client {
 		baseURL = "https://api.anthropic.com"
 	}
 
-	var httpClient *http.Client
-	if config.Provider == types.APIProviderCodex {
-		httpClient = getCodexHTTPClient()
-	} else {
-		httpClient = newStreamingHTTPClient()
-	}
+	httpClient := httpClientForProvider(config.Provider)
 
 	return &Client{
 		apiKey:         apiKey,
