@@ -9,7 +9,10 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.2.21] — 2026-08-30
+## [1.2.22] — 2026-08-30
+
+### Fixed
+- `internal/tools/agents/agent_tool.go`: the `agent` tool's own `run_in_background: true` mode never notified callers of real completion — only `TaskGet`/`TaskList` polling could ever learn the outcome, and the engine's generic tool-execution pipeline emits its own "completed" `tool.progress` event for the dispatch itself (creating the background task, not finishing it) almost instantly. Since this tool is literally named `agent` — the same name the synchronous, blocking call path uses, whose "completed" event genuinely IS the real completion — clients had no way to tell a real completion apart from a mere dispatch acknowledgement for this specific mode. Fixed the same way `spawn_agent` (`spawn_agent.go`) already handles this: a background goroutine now blocks on `Manager.WaitForTask` and emits a second `tool.progress` event carrying `metadata.subagent_finished=true` once the task actually reaches a terminal state — the same marker `spawn_agent`'s own notifier already uses, so a consuming client can apply one shared rule for both. The dispatch's own immediate response text no longer claims "there is no completion notification for this."
 
 ### Added
 - `pkg/sdk/shell_hooks.go`: `Client.ReloadPreToolHooks(cfgs []PreToolHookConfig) error` replaces a client's entire shell pre-tool hook set live. Previously `ClientConfig.PreToolHooks` was only ever read once, inside `NewClient` — a consumer resolving hook configuration from a remote source (an org-shared catalog, for example) had no way to pick up a change without restarting the whole process, unlike MCP servers (`ReloadMCPServers`). Removes any existing registration by its fixed `ToolHook.ID` before re-registering, so repeated calls replace the set atomically instead of accumulating duplicate, double-firing registrations.

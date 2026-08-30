@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
+	"strings"
 	"time"
 
 	coreagent "github.com/KPO-Tech/seshat/internal/agent"
@@ -311,7 +313,7 @@ func (t *AgentTool) Call(
 	}
 
 	if runInBackground {
-		result, err := t.runAgentBackground(ctx, agentType, fullPrompt, allowedTools)
+		result, err := t.runAgentBackground(ctx, agentType, fullPrompt, allowedTools, input.ToolUseID)
 		if err != nil {
 			return tool.CallResult{Data: map[string]any{"error": err.Error()}, Content: err.Error()}, nil
 		}
@@ -601,8 +603,29 @@ func matchesPattern(name string, patterns []string) bool {
 	return false
 }
 
-// runAgentBackground runs an agent in the background using the task manager
-func (t *AgentTool) runAgentBackground(ctx context.Context, agentType, prompt string, allowedTools []string) (tool.CallResult, error) {
+// runAgentBackground runs an agent in the background using the task manager.
+//
+// Unlike spawn_agent (spawn_agent.go), which uses its own AsyncAgentManager
+// and always notifies the frontend of real completion via a second
+// tool.progress event, this used to leave the caller with nothing but
+// TaskGet/TaskList polling: the outer tool call returns almost instantly
+// (dispatch only), and the engine's generic tool-execution pipeline emits its
+// own "completed" tool.progress event for that dispatch alone. Since this
+// tool is literally named "agent" - the same name the synchronous, blocking
+// call path uses, whose "completed" event genuinely IS the real
+// completion - the frontend (useChat.ts) had no way to tell a real
+// completion apart from a mere dispatch acknowledgement for this specific
+// mode, and showed the sub-agent as "Completed" within milliseconds while
+// the actual research kept running for tens of seconds server-side.
+//
+// Fixed the same way spawn_agent already does it: a background goroutine
+// blocks on the task manager's own WaitForTask (the manager already bounds
+// task execution internally via ManagerConfig.TaskTimeout, so no additional
+// timeout is applied here) and emits a second tool.progress event carrying
+// metadata.subagent_finished=true once the task actually reaches a terminal
+// state - the same marker spawn_agent's own notifier uses, so the frontend
+// can apply one shared rule for both.
+func (t *AgentTool) runAgentBackground(ctx context.Context, agentType, prompt string, allowedTools []string, callID string) (tool.CallResult, error) {
 	manager := tasks.GlobalManager()
 	if manager == nil {
 		return tool.CallResult{
@@ -627,11 +650,10 @@ func (t *AgentTool) runAgentBackground(ctx context.Context, agentType, prompt st
 		}, nil
 	}
 
-	// There is no push notification for background agent completion — this task
-	// runs in its own independent engine session (see Manager.CreateAgentTask),
-	// decoupled from this turn's SSE connection, which may well be closed by the
-	// time the task finishes. The only reliable way to learn the outcome is to
-	// poll; say so plainly instead of promising a notification that never comes.
+	if emitter, ok := ctx.Value(types.RuntimeEventEmitterKey).(func(types.RuntimeEvent)); ok && emitter != nil {
+		go t.notifyAgentTaskCompletion(manager, task.ID, callID, emitter)
+	}
+
 	return tool.CallResult{
 		Data: map[string]any{
 			"agentType":   agentType,
@@ -640,8 +662,63 @@ func (t *AgentTool) runAgentBackground(ctx context.Context, agentType, prompt st
 			"background":  true,
 			"description": task.Description,
 		},
-		Content: fmt.Sprintf("Agent '%s' started in background (task ID: %s)\n\nThere is no completion notification for this — poll with TaskGet('%s') or TaskList to check status and retrieve output once it finishes.", agentType, task.ID, task.ID),
+		Content: fmt.Sprintf("Agent '%s' started in background (task ID: %s)\n\nA completion update will arrive once it finishes; you can also poll with TaskGet('%s') or TaskList in the meantime.", agentType, task.ID, task.ID),
 	}, nil
+}
+
+// notifyAgentTaskCompletion blocks until the background agent task reaches a
+// terminal state and emits the real completion as a tool.progress event.
+// Mirrors spawn_agent.go's own completion notifier goroutine (same
+// subagent_finished marker, same panic-recovery discipline - this goroutine
+// outlives the parent tool call, and often the parent HTTP request that
+// originated it, so it must never take the process down with it).
+func (t *AgentTool) notifyAgentTaskCompletion(manager *tasks.Manager, taskID tasks.TaskID, callID string, emitter func(types.RuntimeEvent)) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("agent background completion notifier panic",
+				"panic", r, "tool_use_id", callID, "task_id", taskID)
+		}
+	}()
+
+	// context.Background(): the parent turn's context is expected to be
+	// canceled well before a long-running background task finishes (that's
+	// the whole point of running it in the background) - waiting on it here
+	// would just mean this notifier gives up right when it's needed most.
+	// No explicit timeout either: the task itself is already bounded by
+	// ManagerConfig.TaskTimeout inside Manager.runAgentTask.
+	finished, waitErr := manager.WaitForTask(context.Background(), taskID, 0)
+
+	status := "completed"
+	metadata := map[string]any{"subagent_finished": true}
+	switch {
+	case waitErr != nil:
+		status = "failed"
+		metadata["error"] = waitErr.Error()
+	case finished == nil:
+		status = "failed"
+		metadata["error"] = "background agent task result unavailable"
+	default:
+		if finished.Status == tasks.TaskStatusFailed || finished.Status == tasks.TaskStatusKilled {
+			status = "failed"
+			if finished.Error != "" {
+				metadata["error"] = finished.Error
+			}
+		}
+		if content := strings.TrimSpace(finished.Output); content != "" {
+			metadata["content"] = content
+		}
+	}
+
+	emitter(types.RuntimeEvent{
+		Type:      types.RuntimeEventTypeToolProgress,
+		Timestamp: time.Now(),
+		ToolProgress: &types.ToolProgress{
+			ToolUseID: callID,
+			ToolName:  coreagent.ToolNameAgent,
+			Stage:     types.ToolProgressStage(status),
+			Metadata:  metadata,
+		},
+	})
 }
 
 // extractForkMessagesFromInput extracts inherited transcript for fork mode.
