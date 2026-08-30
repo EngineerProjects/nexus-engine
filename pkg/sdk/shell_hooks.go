@@ -3,11 +3,39 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	shellhooks "github.com/KPO-Tech/seshat/internal/hooks"
 	runtimehooks "github.com/KPO-Tech/seshat/internal/runtime/hooks"
 	"github.com/KPO-Tech/seshat/internal/types"
 )
+
+// shellPreToolHooksID is the fixed ToolHook.ID every shell pre-tool hook
+// registration uses, regardless of how many underlying shell commands it
+// wraps - ReloadPreToolHooks relies on this being stable to replace the
+// whole set atomically instead of accumulating duplicate registrations.
+const shellPreToolHooksID = "shell-pre-tool-hooks"
+
+// ReloadPreToolHooks replaces this client's entire shell pre-tool hook set
+// with cfgs, live - unlike PreToolHooks on ClientConfig, which is only ever
+// read once inside NewClient. Safe to call with an empty cfgs to clear every
+// hook (e.g. an org revoking what it shares, or a user withdrawing local
+// approval) without leaving a stale, no-longer-wanted command able to run.
+func (c *Client) ReloadPreToolHooks(cfgs []PreToolHookConfig) error {
+	if c == nil {
+		return fmt.Errorf("client is nil")
+	}
+	c.RemoveToolHook(shellPreToolHooksID)
+	if len(cfgs) == 0 {
+		return nil
+	}
+	workDir := ""
+	if c.config != nil {
+		workDir = c.config.WorkingDir
+	}
+	c.registerShellPreToolHooks(cfgs, workDir)
+	return nil
+}
 
 // registerShellPreToolHooks converts PreToolHookConfig entries to ToolHooks
 // backed by our shell hooks runner and registers them on the orchestrator.
@@ -26,7 +54,7 @@ func (c *Client) registerShellPreToolHooks(cfgs []PreToolHookConfig, workDir str
 	hook := runtimehooks.ToolHook{
 		Stage:    runtimehooks.ToolHookStagePre,
 		Priority: 10,
-		ID:       "shell-pre-tool-hooks",
+		ID:       shellPreToolHooksID,
 		Execute: func(ctx context.Context, input runtimehooks.ToolHookInput) runtimehooks.ToolHookResult {
 			// Serialize tool input to JSON for the shell process.
 			inputJSON, err := json.Marshal(input.Input)

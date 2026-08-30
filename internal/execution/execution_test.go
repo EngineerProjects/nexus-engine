@@ -546,6 +546,69 @@ func TestPreHookCanStopExecution(t *testing.T) {
 	}
 }
 
+// TestOrchestratorRemoveHookStopsItFromFiring covers the primitive
+// pkg/sdk.Client.ReloadPreToolHooks depends on: a hook removed by ID must
+// never fire again, and re-adding one with the same ID afterward must not
+// leave two copies running (the exact gotcha a naive live-reload would hit
+// without a Remove step - see docs/helps/audit-2026-08-29-openwork-den-comparison.md § 7).
+func TestOrchestratorRemoveHookStopsItFromFiring(t *testing.T) {
+	orch := NewOrchestrator()
+	var fireCount int32
+	orch.AddHook(ToolHook{
+		Stage:    ToolHookStagePre,
+		Priority: 100,
+		ID:       "counter",
+		Execute: func(ctx context.Context, input ToolHookInput) ToolHookResult {
+			atomic.AddInt32(&fireCount, 1)
+			return ToolHookResult{}
+		},
+	})
+
+	stub := &stubTool{}
+	runOnce := func() {
+		_, err := orch.Execute(context.Background(), ExecuteRequest{
+			ToolUses:       []types.ToolUseContent{{ID: "t1", Name: "stub", Input: map[string]any{}}},
+			Tools:          map[string]tool.Tool{"stub": stub},
+			SessionID:      types.SessionID("s1"),
+			TurnID:         types.TurnID("t1"),
+			PermissionMode: types.PermissionModeOnRequest,
+		})
+		if err != nil {
+			t.Fatalf("Execute failed: %v", err)
+		}
+	}
+
+	runOnce()
+	if got := atomic.LoadInt32(&fireCount); got != 1 {
+		t.Fatalf("expected the hook to fire once, got %d", got)
+	}
+
+	removed := orch.RemoveHook("counter")
+	if removed != 1 {
+		t.Fatalf("expected RemoveHook to report 1 removed, got %d", removed)
+	}
+	runOnce()
+	if got := atomic.LoadInt32(&fireCount); got != 1 {
+		t.Fatalf("expected no additional fire after removal, got %d", got)
+	}
+
+	// Re-adding under the same ID (simulating a reload with fresh config)
+	// must not leave a stale second registration behind either.
+	orch.AddHook(ToolHook{
+		Stage:    ToolHookStagePre,
+		Priority: 100,
+		ID:       "counter",
+		Execute: func(ctx context.Context, input ToolHookInput) ToolHookResult {
+			atomic.AddInt32(&fireCount, 1)
+			return ToolHookResult{}
+		},
+	})
+	runOnce()
+	if got := atomic.LoadInt32(&fireCount); got != 2 {
+		t.Fatalf("expected exactly one more fire after re-adding once, got %d", got)
+	}
+}
+
 func TestPreHookCanModifyInput(t *testing.T) {
 	orch := NewOrchestrator()
 	orch.AddHook(ToolHook{
