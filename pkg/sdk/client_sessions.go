@@ -185,6 +185,14 @@ func (c *Client) AddToolHook(hook ToolHook) {
 	c.orchestrator.AddHook(hook)
 }
 
+// RemoveToolHook drops every previously-registered hook with the given ID.
+func (c *Client) RemoveToolHook(id string) {
+	if c == nil || c.orchestrator == nil {
+		return
+	}
+	c.orchestrator.RemoveHook(id)
+}
+
 // HookRegistry returns the engine's lifecycle hook registry.
 func (c *Client) HookRegistry() *HookRegistry {
 	if c == nil || c.queryEngine == nil {

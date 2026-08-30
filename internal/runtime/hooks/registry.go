@@ -21,6 +21,27 @@ func (r *Registry) Add(hook ToolHook) {
 	})
 }
 
+// Remove drops every hook whose ID matches, so a caller can replace a
+// previously-registered hook (e.g. re-resolving an updated configuration)
+// without accumulating duplicate registrations across reloads. Returns the
+// number of hooks removed.
+func (r *Registry) Remove(id string) int {
+	if r == nil || id == "" {
+		return 0
+	}
+	kept := r.hooks[:0]
+	removed := 0
+	for _, hook := range r.hooks {
+		if hook.ID == id {
+			removed++
+			continue
+		}
+		kept = append(kept, hook)
+	}
+	r.hooks = kept
+	return removed
+}
+
 func (r *Registry) ByStage(stage ToolHookStage) []ToolHook {
 	if r == nil || len(r.hooks) == 0 {
 		return nil

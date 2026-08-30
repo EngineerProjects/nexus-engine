@@ -9,6 +9,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.21] — 2026-08-30
+
+### Added
+- `pkg/sdk/shell_hooks.go`: `Client.ReloadPreToolHooks(cfgs []PreToolHookConfig) error` replaces a client's entire shell pre-tool hook set live. Previously `ClientConfig.PreToolHooks` was only ever read once, inside `NewClient` — a consumer resolving hook configuration from a remote source (an org-shared catalog, for example) had no way to pick up a change without restarting the whole process, unlike MCP servers (`ReloadMCPServers`). Removes any existing registration by its fixed `ToolHook.ID` before re-registering, so repeated calls replace the set atomically instead of accumulating duplicate, double-firing registrations.
+- `internal/runtime/hooks/registry.go`: `Registry.Remove(id string) int` drops every hook with the given ID and reports how many were removed — the missing counterpart to the existing `Add`, needed for `ReloadPreToolHooks` above.
+- `internal/execution/orchestrator.go`: `Orchestrator.RemoveHook(id string) int` exposes `Registry.Remove` at the orchestrator level, mirroring `AddHook`.
+- `pkg/sdk/client_sessions.go`: `Client.RemoveToolHook(id string)` exposes the above at the public `Client` level, mirroring `AddToolHook`.
+
 ## [1.2.20] — 2026-08-28
 
 A broad provider-reliability pass following up on the `previous_response_id`

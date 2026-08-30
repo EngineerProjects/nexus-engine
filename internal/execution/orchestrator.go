@@ -76,6 +76,13 @@ func (o *Orchestrator) AddHook(hook ToolHook) {
 	o.hooks.Add(hook)
 }
 
+// RemoveHook drops every previously-registered hook with the given ID -
+// the counterpart AddHook needs so a caller can replace a hook (rather than
+// only ever accumulate more of them) when its configuration changes.
+func (o *Orchestrator) RemoveHook(id string) int {
+	return o.hooks.Remove(id)
+}
+
 func (o *Orchestrator) emitProgress(req ExecuteRequest, progress types.ToolProgress) {
 	if req.ProgressCallback != nil {
 		o.progressMu.Lock()
