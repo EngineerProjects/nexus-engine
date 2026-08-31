@@ -9,6 +9,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.25] — 2026-08-31
+
+### Fixed
+- `pkg/automation/automation.go`: `TriggerTypeEvent` (added in 1.2.24) was never added to this package's public re-export const block, unlike the other three trigger types - an external consumer (e.g. seshat-ai) could reference `Trigger.IsEvent()`/`RunEvent` fine (methods pass through the `Trigger`/`JobScheduler` type aliases automatically), but had no way to actually construct a `Trigger{Type: automation.TriggerTypeEvent}` at all. Found immediately while wiring the first real consumer (seshat-ai's Inbox workflow feature) - `go vet` caught it as an undefined identifier on the very first build.
+
 ## [1.2.24] — 2026-08-31
 
 ### Added
