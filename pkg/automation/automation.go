@@ -127,6 +127,7 @@ const (
 	TriggerTypeCron     = automation.TriggerTypeCron
 	TriggerTypeInterval = automation.TriggerTypeInterval
 	TriggerTypeOnce     = automation.TriggerTypeOnce
+	TriggerTypeEvent    = automation.TriggerTypeEvent
 	JobStatusActive     = automation.JobStatusActive
 	JobStatusPaused     = automation.JobStatusPaused
 	JobStatusInactive   = automation.JobStatusInactive
