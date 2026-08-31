@@ -9,6 +9,11 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.24] — 2026-08-31
+
+### Added
+- `internal/automation/job.go`: `TriggerTypeEvent` — a job trigger that fires on demand (`JobScheduler.RunEvent`) instead of on a schedule, for embedding applications that want to react to their own events (e.g. seshat-ai's Inbox reacting to a newly-arrived message) rather than polling. `Trigger` gains `EventType`/`EventFilter` (opaque strings this package stores/passes through — matching an event against `EventType` and evaluating `EventFilter` against its payload is entirely the caller's responsibility, keeping this package free of any event-specific dependency); `Trigger.IsEvent()` reports the new type. `AddJob`/`UpdateJob`/`ResumeJob`/`rehydrate` skip schedule computation for it, and it's naturally invisible to the time-based ticker (`tick`) since it never has a `NextRunAt`. New `JobScheduler.RunEvent(ctx, job, contextText)` mirrors `RunNow` but takes an already-loaded `Job` plus event context text to append to its task, for a caller that already has the job in hand from its own event-matching pass. First real consumer: seshat-ai's Inbox workflow-automation feature (Inbox Agent-authored "when a message arrives matching X, do Y" rules), the reason this session studied `neul-labs/m9m` in the first place.
+
 ## [1.2.23] — 2026-08-31
 
 ### Fixed
