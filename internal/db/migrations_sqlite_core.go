@@ -99,6 +99,11 @@ func sqliteCoreMigrations() []schemaMigration {
 			Scope: migrationScopeCoreSQLite,
 			Run:   migrateSQLiteSessionGoals,
 		},
+		{
+			ID:    "20260831_017_automation_job_limits",
+			Scope: migrationScopeCoreSQLite,
+			Run:   migrateSQLiteAutomationJobLimits,
+		},
 	}
 }
 
@@ -438,6 +443,25 @@ func migrateSQLiteAutomationAgentSlug(ctx context.Context, db *DB) error {
 	return db.gormDB.WithContext(ctx).Exec(
 		`ALTER TABLE automation_jobs ADD COLUMN agent_slug TEXT NOT NULL DEFAULT ''`,
 	).Error
+}
+
+// migrateSQLiteAutomationJobLimits adds per-job execution guardrails - a
+// wall-clock timeout (max_duration_ns) and a total-run-count cap (max_runs,
+// tracked against run_count) - so a hung agent turn or a runaway schedule
+// can't run forever. Idea from studying neul-labs/m9m (MIT), which has the
+// same concept on its schedule config.
+func migrateSQLiteAutomationJobLimits(ctx context.Context, db *DB) error {
+	statements := []string{
+		`ALTER TABLE automation_jobs ADD COLUMN max_duration_ns INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE automation_jobs ADD COLUMN max_runs INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE automation_jobs ADD COLUMN run_count INTEGER NOT NULL DEFAULT 0`,
+	}
+	for _, stmt := range statements {
+		if err := db.gormDB.WithContext(ctx).Exec(stmt).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func migrateSQLiteLongtermMemory(ctx context.Context, db *DB) error {

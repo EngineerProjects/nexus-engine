@@ -98,14 +98,22 @@ const (
 
 // Job is a persisted automation task: trigger + agent config + task description.
 type Job struct {
-	ID            string
-	OwnerID       string // user ID from the calling app — empty means unowned (system job)
-	Name          string
-	Description   string
-	Trigger       Trigger
-	Agent         AgentConfig
-	Task          string
-	Status        JobStatus
+	ID          string
+	OwnerID     string // user ID from the calling app — empty means unowned (system job)
+	Name        string
+	Description string
+	Trigger     Trigger
+	Agent       AgentConfig
+	Task        string
+	Status      JobStatus
+	// MaxDuration caps a single execution's wall-clock time; 0 = unlimited.
+	// Idea from studying neul-labs/m9m (MIT), which has the same concept on
+	// its schedule config - a hung agent turn would otherwise run forever.
+	MaxDuration time.Duration
+	// MaxRuns caps the total number of executions before the job goes
+	// Inactive (same idea/source as MaxDuration); 0 = unlimited.
+	MaxRuns       int
+	RunCount      int // number of executions so far; enforces MaxRuns
 	LastRunAt     *time.Time
 	NextRunAt     *time.Time
 	LastRunStatus string // "success" | "error" | ""

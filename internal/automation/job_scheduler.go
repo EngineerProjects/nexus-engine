@@ -2,6 +2,7 @@ package automation
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -79,6 +80,44 @@ func mergeAgentConfig(base, inline AgentConfig) AgentConfig {
 		result.Skills = inline.Skills
 	}
 	return result
+}
+
+// formatExecError turns a runner.Execute error into the JobRun.Error text,
+// giving a timeout its own clear message instead of the raw
+// "context deadline exceeded" — pulled out of execute() as a pure function
+// so it's testable without a real Runner (Runner always makes a real LLM
+// call, so it can't stand in for a "long-running" test double).
+func formatExecError(err error, maxDuration time.Duration) string {
+	if errors.Is(err, context.DeadlineExceeded) {
+		return fmt.Sprintf("execution timed out after %s", maxDuration)
+	}
+	return err.Error()
+}
+
+// applyRunOutcome updates job in place after a run finishes: records the
+// outcome, increments RunCount, and decides whether the job goes Inactive
+// (MaxRuns budget exhausted, or a "once" trigger that already fired) or gets
+// rescheduled. Pulled out of execute() as a pure function (no store/runner
+// dependency) so the MaxRuns/reschedule decision is unit-testable directly.
+func applyRunOutcome(job *Job, run *JobRun, endedAt time.Time) {
+	job.LastRunAt = &endedAt
+	job.LastRunStatus = string(run.Status)
+	job.RunCount++
+
+	if job.MaxRuns > 0 && job.RunCount >= job.MaxRuns {
+		job.Status = JobStatusInactive // run-count budget exhausted
+		return
+	}
+	sched, err := job.Trigger.ToSchedule()
+	if err != nil {
+		return
+	}
+	next := sched.Next(endedAt)
+	if next.IsZero() {
+		job.Status = JobStatusInactive // once-trigger done
+	} else {
+		job.NextRunAt = &next
+	}
 }
 
 // Run blocks and ticks the scheduler until ctx is cancelled.
@@ -202,15 +241,24 @@ func (s *JobScheduler) execute(ctx context.Context, job *Job) {
 		ec.ModelOverride = effectiveAgent.Model
 	}
 
+	// MaxDuration caps a single execution's wall-clock time so a hung agent
+	// turn can't run forever; 0 = unlimited (see Job.MaxDuration doc).
+	execCtx := ctx
+	if job.MaxDuration > 0 {
+		var cancel context.CancelFunc
+		execCtx, cancel = context.WithTimeout(ctx, job.MaxDuration)
+		defer cancel()
+	}
+
 	wf := &jobWorkflow{job: job}
-	execErr := runner.Execute(ctx, wf, ec)
+	execErr := runner.Execute(execCtx, wf, ec)
 
 	endedAt := time.Now()
 	run.EndedAt = &endedAt
 	run.Output = buf.String()
 	if execErr != nil {
 		run.Status = RunStatusError
-		run.Error = execErr.Error()
+		run.Error = formatExecError(execErr, job.MaxDuration)
 		s.logger.Printf("[automation] job %q failed: %v", job.Name, execErr)
 	} else {
 		run.Status = RunStatusSuccess
@@ -226,19 +274,7 @@ func (s *JobScheduler) execute(ctx context.Context, job *Job) {
 	if err != nil || current == nil {
 		return
 	}
-	current.LastRunAt = &endedAt
-	current.LastRunStatus = string(run.Status)
-
-	sched, err := job.Trigger.ToSchedule()
-	if err == nil {
-		next := sched.Next(endedAt)
-		if next.IsZero() {
-			current.Status = JobStatusInactive // once-trigger done
-		} else {
-			current.NextRunAt = &next
-		}
-	}
-	current.UpdatedAt = endedAt
+	applyRunOutcome(current, run, endedAt)
 	_ = s.store.UpdateJob(ctx, current)
 }
 
