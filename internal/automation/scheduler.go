@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strconv"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/robfig/cron/v3"
 )
 
 // ─── Schedule interface ───────────────────────────────────────────────────────
@@ -63,40 +63,27 @@ func (s *OnceSchedule) String() string { return fmt.Sprintf("once at %s", s.At.F
 //	│ │ │ │ │
 //	* * * * *
 //
-// Supports: *, N, N-M, */N, N,M,…, and combinations thereof.
+// Supports: *, N, N-M, */N, N,M,…, and combinations thereof. When both dom
+// and dow are restricted (neither is *), POSIX cron semantics fire on
+// EITHER matching (not both) - e.g. "0 9 15 * 1" fires at 9am on the 15th
+// of every month AND every Monday, not only when the 15th is a Monday.
+// Parsing/computation is delegated to robfig/cron (MIT), which already
+// implements this correctly - a hand-rolled bitmask parser used to live
+// here and got the dom/dow OR-semantics wrong (AND instead of OR). Idea to
+// use a battle-tested cron library instead of a hand-rolled parser came
+// from studying neul-labs/m9m (MIT), which does the same.
 type CronSchedule struct {
-	expr   string
-	minute cronField
-	hour   cronField
-	dom    cronField
-	month  cronField
-	dow    cronField
+	expr     string
+	schedule cron.Schedule
 }
 
 // Cron parses a 5-field cron expression. Returns an error on invalid syntax.
 func Cron(expr string) (*CronSchedule, error) {
-	fields := strings.Fields(expr)
-	if len(fields) != 5 {
-		return nil, fmt.Errorf("cron: expected 5 fields, got %d in %q", len(fields), expr)
+	sched, err := cron.ParseStandard(expr)
+	if err != nil {
+		return nil, fmt.Errorf("cron: %w", err)
 	}
-	c := &CronSchedule{expr: expr}
-	var err error
-	if c.minute, err = parseCronField(fields[0], 0, 59); err != nil {
-		return nil, fmt.Errorf("cron minute: %w", err)
-	}
-	if c.hour, err = parseCronField(fields[1], 0, 23); err != nil {
-		return nil, fmt.Errorf("cron hour: %w", err)
-	}
-	if c.dom, err = parseCronField(fields[2], 1, 31); err != nil {
-		return nil, fmt.Errorf("cron dom: %w", err)
-	}
-	if c.month, err = parseCronField(fields[3], 1, 12); err != nil {
-		return nil, fmt.Errorf("cron month: %w", err)
-	}
-	if c.dow, err = parseCronField(fields[4], 0, 6); err != nil {
-		return nil, fmt.Errorf("cron dow: %w", err)
-	}
-	return c, nil
+	return &CronSchedule{expr: expr, schedule: sched}, nil
 }
 
 // MustCron parses expr and panics on error.
@@ -108,119 +95,9 @@ func MustCron(expr string) *CronSchedule {
 	return c
 }
 
-func (c *CronSchedule) Next(from time.Time) time.Time {
-	// Start searching from the next whole minute after from.
-	t := from.Add(time.Minute).Truncate(time.Minute)
-
-	// Safety: search at most 1 year ahead (cron expressions always fire within a year).
-	limit := from.Add(366 * 24 * time.Hour)
-	for t.Before(limit) {
-		if !c.month.contains(int(t.Month())) {
-			// Skip to first day of next month.
-			t = time.Date(t.Year(), t.Month()+1, 1, 0, 0, 0, 0, t.Location())
-			continue
-		}
-		if !c.dom.contains(t.Day()) || !c.dow.contains(int(t.Weekday())) {
-			t = time.Date(t.Year(), t.Month(), t.Day()+1, 0, 0, 0, 0, t.Location())
-			continue
-		}
-		if !c.hour.contains(t.Hour()) {
-			t = time.Date(t.Year(), t.Month(), t.Day(), t.Hour()+1, 0, 0, 0, t.Location())
-			continue
-		}
-		if !c.minute.contains(t.Minute()) {
-			t = t.Add(time.Minute)
-			continue
-		}
-		return t
-	}
-	return time.Time{}
-}
+func (c *CronSchedule) Next(from time.Time) time.Time { return c.schedule.Next(from) }
 
 func (c *CronSchedule) String() string { return fmt.Sprintf("cron(%s)", c.expr) }
-
-// ─── cron field parser ────────────────────────────────────────────────────────
-
-// cronField is a bitmask over a range of integer values.
-// Bit N is set when value N is active.
-type cronField struct {
-	bits uint64
-	min  int
-	max  int
-}
-
-func (f cronField) contains(v int) bool {
-	if v < f.min || v > f.max {
-		return false
-	}
-	return f.bits&(1<<uint(v)) != 0
-}
-
-// parseCronField parses a single cron field supporting:
-// *, N, N-M, */step, N-M/step, and comma-separated combinations.
-func parseCronField(expr string, min, max int) (cronField, error) {
-	f := cronField{min: min, max: max}
-	for _, part := range strings.Split(expr, ",") {
-		if err := f.applyPart(strings.TrimSpace(part), min, max); err != nil {
-			return f, err
-		}
-	}
-	return f, nil
-}
-
-func (f *cronField) applyPart(part string, min, max int) error {
-	// Handle */step
-	if strings.HasPrefix(part, "*/") {
-		step, err := strconv.Atoi(part[2:])
-		if err != nil || step <= 0 {
-			return fmt.Errorf("invalid step %q", part)
-		}
-		for v := min; v <= max; v += step {
-			f.bits |= 1 << uint(v)
-		}
-		return nil
-	}
-
-	// Handle *
-	if part == "*" {
-		for v := min; v <= max; v++ {
-			f.bits |= 1 << uint(v)
-		}
-		return nil
-	}
-
-	// Handle N-M or N-M/step
-	if idx := strings.Index(part, "-"); idx >= 0 {
-		rangePart := part[:idx]
-		rest := part[idx+1:]
-		step := 1
-		if slashIdx := strings.Index(rest, "/"); slashIdx >= 0 {
-			s, err := strconv.Atoi(rest[slashIdx+1:])
-			if err != nil || s <= 0 {
-				return fmt.Errorf("invalid step in %q", part)
-			}
-			step = s
-			rest = rest[:slashIdx]
-		}
-		lo, err1 := strconv.Atoi(rangePart)
-		hi, err2 := strconv.Atoi(rest)
-		if err1 != nil || err2 != nil || lo < min || hi > max || lo > hi {
-			return fmt.Errorf("invalid range %q (valid: %d-%d)", part, min, max)
-		}
-		for v := lo; v <= hi; v += step {
-			f.bits |= 1 << uint(v)
-		}
-		return nil
-	}
-
-	// Handle plain number N
-	v, err := strconv.Atoi(part)
-	if err != nil || v < min || v > max {
-		return fmt.Errorf("invalid value %q (valid: %d-%d)", part, min, max)
-	}
-	f.bits |= 1 << uint(v)
-	return nil
-}
 
 // ─── Scheduler ────────────────────────────────────────────────────────────────
 

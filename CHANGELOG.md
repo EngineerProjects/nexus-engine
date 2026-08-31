@@ -9,6 +9,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.23] — 2026-08-31
+
+### Fixed
+- `internal/automation/scheduler.go`: `CronSchedule.Next` required BOTH day-of-month and day-of-week to match whenever neither was `*` (AND logic) — e.g. `0 9 15 * 1` ("9am on the 15th, and every Monday") only fired when the 15th happened to land on a Monday. Standard POSIX cron semantics require EITHER to match in that case (OR logic), only requiring both when one of the two fields is `*`. The hand-rolled bitmask parser is replaced with `robfig/cron/v3` (MIT), which implements this correctly; `CronSchedule` is now a thin adapter over it so `Trigger.ToSchedule`/`JobScheduler` are unaffected. Idea to use a battle-tested cron library instead of a hand-rolled parser came from studying `neul-labs/m9m` (MIT), which does the same.
+- `internal/engine/loop.go`: `waitRecoveryBackoff` (the retry delay for every recoverable provider error — rate limits, timeouts, transient API/network errors, across the whole SDK) grew linearly (`multiplier*attempt`: 250ms, 500ms, 750ms...) with no jitter, so many sessions/jobs hitting the same upstream outage would all retry in lockstep against an already-struggling provider. Now exponential (doubling each attempt, capped by a new `LoopConfig.RecoveryBackoffMaxDelay`, default 30s) plus up to 25% jitter — standard practice for exactly this "thundering herd" failure mode. `RecoveryBackoffMultiplier`'s existing meaning (base delay in ms, default 250) and `MaxRecoveryAttempts` are unaffected. Idea from studying `neul-labs/m9m` (MIT), which does the same for its own retry policy; seshat's own error *classification* (`recoveryLabel`/`ClassifyHTTPError`, structured/typed) was already more robust than m9m's substring-matching approach, so only the delay formula changed.
+
+### Added
+- `internal/automation/job.go`: `Job.MaxDuration` (per-execution wall-clock timeout, via `context.WithTimeout`) and `Job.MaxRuns` (total execution count cap, tracked via a new `Job.RunCount`) — a scheduled job with a hung agent turn previously ran forever, and there was no way to cap how many times a recurring job should fire. Idea and shape from studying `neul-labs/m9m` (MIT), which has the same two concepts on its schedule config; reimplemented natively here (small enough that no code was actually copied). `internal/db`: new SQLite migration (`20260831_017_automation_job_limits`) adds the backing columns.
+
 ## [1.2.22] — 2026-08-30
 
 ### Fixed
