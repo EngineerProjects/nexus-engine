@@ -14,6 +14,12 @@ const (
 	TriggerTypeCron     TriggerType = "cron"
 	TriggerTypeInterval TriggerType = "interval"
 	TriggerTypeOnce     TriggerType = "once"
+	// TriggerTypeEvent fires on demand, dispatched by the embedding
+	// application when a matching event occurs (e.g. a new inbox message) -
+	// see RunEvent. Unlike the other trigger types it has no schedule; a job
+	// with this trigger type never has a NextRunAt and is invisible to the
+	// time-based ticker in Run/tick.
+	TriggerTypeEvent TriggerType = "event"
 )
 
 // Trigger defines when an automation job fires.
@@ -22,9 +28,28 @@ type Trigger struct {
 	Cron     string        // valid when Type == TriggerTypeCron
 	Interval time.Duration // valid when Type == TriggerTypeInterval
 	RunAt    *time.Time    // valid when Type == TriggerTypeOnce
+	// EventType identifies which event this trigger reacts to (e.g.
+	// "inbox.message.received"); valid when Type == TriggerTypeEvent. The
+	// scheduler treats this as an opaque string - matching a firing event
+	// against EventType, and evaluating EventFilter against that event's
+	// payload, is entirely the embedding application's responsibility (see
+	// RunEvent's doc comment) so this package stays free of any
+	// event-specific dependency.
+	EventType string
+	// EventFilter is an optional condition expression evaluated by the
+	// embedding application against the triggering event's payload before
+	// calling RunEvent; empty means always match. Stored/passed through
+	// as-is - this package does not interpret it.
+	EventFilter string
 }
 
+// IsEvent reports whether t is dispatched on demand (TriggerTypeEvent)
+// rather than computed by ToSchedule - callers must check this before
+// calling ToSchedule, which returns an error for this trigger type.
+func (t Trigger) IsEvent() bool { return t.Type == TriggerTypeEvent }
+
 // ToSchedule converts a Trigger to the Schedule interface used by the engine.
+// Returns an error for TriggerTypeEvent - check IsEvent first.
 func (t Trigger) ToSchedule() (Schedule, error) {
 	switch t.Type {
 	case TriggerTypeCron:
@@ -39,6 +64,8 @@ func (t Trigger) ToSchedule() (Schedule, error) {
 			return nil, fmt.Errorf("trigger type 'once' requires RunAt")
 		}
 		return Once(*t.RunAt), nil
+	case TriggerTypeEvent:
+		return nil, fmt.Errorf("trigger type 'event' has no schedule - dispatched via RunEvent, check Trigger.IsEvent first")
 	default:
 		return nil, fmt.Errorf("unknown trigger type %q", t.Type)
 	}
@@ -55,6 +82,11 @@ func (t Trigger) String() string {
 			return fmt.Sprintf("once at %s", t.RunAt.Format(time.RFC3339))
 		}
 		return "once (unset)"
+	case TriggerTypeEvent:
+		if t.EventFilter != "" {
+			return fmt.Sprintf("event(%s, filter: %s)", t.EventType, t.EventFilter)
+		}
+		return fmt.Sprintf("event(%s)", t.EventType)
 	default:
 		return string(t.Type)
 	}
