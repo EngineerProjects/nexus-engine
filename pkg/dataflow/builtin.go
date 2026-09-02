@@ -29,7 +29,17 @@ func (agentNode) Description() NodeDescription {
 	return NodeDescription{Type: "agent", Name: "Agent", Category: "AI",
 		Description: "Runs a single prompt through a scoped agent turn and returns its text output as one item (field \"text\"). " +
 			"Parameters: prompt (string, required) — the instruction to run; upstream input items (if any) are appended as JSON context automatically. " +
-			"agent (string, optional) — agent slug/persona to run as; empty uses the workflow's default agent."}
+			"agent (string, optional) — agent slug/persona to run as; empty uses the workflow's default agent.",
+		// "agent" (persona slug) can't be a real dropdown here - the set of
+		// valid slugs is only known at runtime/per-tenant, and Description()
+		// is a stateless method with no access to that. Stays a plain
+		// string field; the authoring UI can't offer a picker for it yet.
+		Properties: []NodeProperty{
+			{Name: "prompt", DisplayName: "Prompt", Type: PropText, Required: true,
+				Description: "Upstream input items (if any) are appended as JSON context automatically."},
+			{Name: "agent", DisplayName: "Agent", Type: PropString,
+				Description: "Agent slug/persona to run as; empty uses the workflow's default agent."},
+		}}
 }
 
 func (agentNode) ValidateParameters(params map[string]any) error {

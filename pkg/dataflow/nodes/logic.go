@@ -21,7 +21,12 @@ func NewFilter(pool *expr.Pool) *Filter { return &Filter{pool: pool} }
 func (n *Filter) Description() dataflow.NodeDescription {
 	return dataflow.NodeDescription{Type: "filter", Name: "Filter", Category: "Logic",
 		Description: "Keeps only items matching a boolean expression, dropping the rest — all kept items continue on the \"main\" port. " +
-			"Parameters: expression (string, required) — a JS boolean expression with the current item bound as $json, e.g. \"$json.subject.includes('invoice')\"."}
+			"Parameters: expression (string, required) — a JS boolean expression with the current item bound as $json, e.g. \"$json.subject.includes('invoice')\".",
+		Properties: []dataflow.NodeProperty{
+			{Name: "expression", DisplayName: "Expression", Type: dataflow.PropText, Required: true,
+				Placeholder: "$json.subject.includes('invoice')",
+				Description: "JS boolean expression, current item bound as $json. Same convention as a \"=\"-prefixed value in a Set node's fields."},
+		}}
 }
 
 func (n *Filter) ValidateParameters(params map[string]any) error {
@@ -56,7 +61,12 @@ func NewIf(pool *expr.Pool) *If { return &If{pool: pool} }
 func (n *If) Description() dataflow.NodeDescription {
 	return dataflow.NodeDescription{Type: "if", Name: "If", Category: "Logic",
 		Description: "Routes each item to the \"true\" or \"false\" output port by a boolean expression — wire connections[\"true\"] and/or connections[\"false\"] to different downstream node ids to actually branch. " +
-			"Parameters: expression (string, required) — a JS boolean expression with the current item bound as $json."}
+			"Parameters: expression (string, required) — a JS boolean expression with the current item bound as $json.",
+		Properties: []dataflow.NodeProperty{
+			{Name: "expression", DisplayName: "Expression", Type: dataflow.PropText, Required: true,
+				Placeholder: "$json.status === 'ok'",
+				Description: "JS boolean expression, current item bound as $json. Same convention as a \"=\"-prefixed value in a Set node's fields."},
+		}}
 }
 
 func (n *If) ValidateParameters(params map[string]any) error {
@@ -95,7 +105,18 @@ func NewSwitch(pool *expr.Pool) *Switch { return &Switch{pool: pool} }
 func (n *Switch) Description() dataflow.NodeDescription {
 	return dataflow.NodeDescription{Type: "switch", Name: "Switch", Category: "Logic",
 		Description: "Routes each item to the port of the first matching case (evaluated in casesOrder), or to the \"default\" port if none match — wire connections[<case name>] and connections[\"default\"] to downstream node ids. " +
-			"Parameters: casesOrder (array of string, required) — case names, checked in this order. cases (object of string->string, required) — case name -> JS boolean expression, current item bound as $json."}
+			"Parameters: casesOrder (array of string, required) — case names, checked in this order. cases (object of string->string, required) — case name -> JS boolean expression, current item bound as $json.",
+		// casesOrder/cases are a paired, repeatable structure this flat
+		// property system doesn't model well as separate fields (case
+		// count/names aren't known ahead of time) - declared as two JSON
+		// fields rather than forced into single-value form controls, still
+		// a real improvement over the whole node being one JSON blob.
+		Properties: []dataflow.NodeProperty{
+			{Name: "casesOrder", DisplayName: "Case order", Type: dataflow.PropJSON, Required: true,
+				Description: "Array of case names, checked in this order, e.g. [\"urgent\", \"spam\"]."},
+			{Name: "cases", DisplayName: "Cases", Type: dataflow.PropJSON, Required: true,
+				Description: "Object of case name -> JS boolean expression, current item bound as $json."},
+		}}
 }
 
 func (n *Switch) ValidateParameters(params map[string]any) error {
