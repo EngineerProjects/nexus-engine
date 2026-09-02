@@ -32,7 +32,22 @@ func NewElasticsearch() *Elasticsearch {
 func (n *Elasticsearch) Description() dataflow.NodeDescription {
 	return dataflow.NodeDescription{Type: "elasticsearch", Name: "Elasticsearch", Category: "Database",
 		Description: "Runs one operation against an Elasticsearch index. search returns one item per hit (with _id/_score merged with the source fields); index/get/delete return one item with the raw response. " +
-			"Parameters: baseURLSecretRef (string, required) — name of a configured dataflow secret holding the base URL (e.g. \"https://es.internal:9200\"). index (string, required). operation (string, required) — search/index/get/delete. id (string, required for get/delete, optional for index). document (object, for index). query (object, for search — an Elasticsearch query DSL clause)."}
+			"Parameters: baseURLSecretRef (string, required) — name of a configured dataflow secret holding the base URL (e.g. \"https://es.internal:9200\"). index (string, required). operation (string, required) — search/index/get/delete. id (string, required for get/delete, optional for index). document (object, for index). query (object, for search — an Elasticsearch query DSL clause).",
+		Properties: []dataflow.NodeProperty{
+			{Name: "baseURLSecretRef", DisplayName: "Base URL secret", Type: dataflow.PropString, Required: true,
+				Description: "Name of a configured dataflow secret holding the base URL, e.g. \"https://es.internal:9200\"."},
+			{Name: "index", DisplayName: "Index", Type: dataflow.PropString, Required: true},
+			{Name: "operation", DisplayName: "Operation", Type: dataflow.PropOptions, Required: true, Options: []dataflow.NodePropertyOption{
+				{Label: "Search", Value: "search"}, {Label: "Index", Value: "index"},
+				{Label: "Get", Value: "get"}, {Label: "Delete", Value: "delete"},
+			}},
+			{Name: "id", DisplayName: "Document ID", Type: dataflow.PropString, Description: "Required for get/delete, optional for index.",
+				DisplayIf: &dataflow.DisplayCondition{Field: "operation", Equals: []string{"get", "delete", "index"}}},
+			{Name: "document", DisplayName: "Document", Type: dataflow.PropJSON,
+				DisplayIf: &dataflow.DisplayCondition{Field: "operation", Equals: []string{"index"}}},
+			{Name: "query", DisplayName: "Query", Type: dataflow.PropJSON, Description: "Elasticsearch query DSL clause.",
+				DisplayIf: &dataflow.DisplayCondition{Field: "operation", Equals: []string{"search"}}},
+		}}
 }
 
 var validESOps = map[string]bool{"search": true, "index": true, "get": true, "delete": true}

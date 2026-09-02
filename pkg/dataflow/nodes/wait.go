@@ -22,7 +22,11 @@ func NewWait() Wait { return Wait{} }
 func (Wait) Description() dataflow.NodeDescription {
 	return dataflow.NodeDescription{Type: "wait", Name: "Wait", Category: "Control",
 		Description: "Pauses for a fixed duration, then passes items through unchanged. Blocks the whole graph run for that long — keep it short relative to the job's MaxDuration, if one is set. " +
-			"Parameters: seconds (integer, required, 1-600)."}
+			"Parameters: seconds (integer, required, 1-600).",
+		Properties: []dataflow.NodeProperty{
+			{Name: "seconds", DisplayName: "Seconds", Type: dataflow.PropNumber, Required: true, Default: 1,
+				Description: "1-600."},
+		}}
 }
 
 func (Wait) ValidateParameters(params map[string]any) error {
