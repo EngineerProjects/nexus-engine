@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Seshat - diagramme d'architecture détaillé</title>
+  <style>
+    :root {
+      --bg: #2f2e34;
+      --panel: #37363d;
+      --panel-2: #414048;
+      --ink: #eee8df;
+      --muted: #bfb7ab;
+      --faint: #8f897f;
+      --line: rgba(238, 232, 223, .18);
+      --line-strong: rgba(238, 232, 223, .34);
+      --accent: #ef7c2f;
+      --accent-soft: rgba(239, 124, 47, .16);
+      --blue: #7d9ccf;
+      --green: #8fbf9f;
+      --yellow: #d8b35a;
+      --red: #d97866;
+      --mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
+      --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--sans);
+      line-height: 1.45;
+    }
+
+    main {
+      width: min(1480px, calc(100vw - 48px));
+      margin: 0 auto;
+      padding: 40px 0 56px;
+    }
+
+    header {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 24px;
+      align-items: end;
+      padding-bottom: 24px;
+      border-bottom: 1px solid var(--line);
+      margin-bottom: 32px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: 32px;
+      letter-spacing: 0;
+      line-height: 1.15;
+    }
+
+    .subtitle {
+      margin: 0;
+      color: var(--muted);
+      max-width: 880px;
+      font-size: 16px;
+    }
+
+    .meta {
+      display: grid;
+      gap: 8px;
+      justify-items: end;
+      color: var(--muted);
+      font-family: var(--mono);
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      margin: 0 0 28px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .legend span {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .swatch {
+      width: 16px;
+      height: 8px;
+      border-radius: 2px;
+      display: inline-block;
+      border: 1px solid var(--line-strong);
+    }
+
+    section {
+      margin-top: 36px;
+      padding-top: 28px;
+      border-top: 1px solid var(--line);
+    }
+
+    .section-head {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 20px;
+      align-items: baseline;
+      margin-bottom: 16px;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 24px;
+      letter-spacing: 0;
+      line-height: 1.2;
+    }
+
+    .note {
+      color: var(--muted);
+      font-size: 13px;
+      max-width: 760px;
+      margin: 0;
+    }
+
+    .diagram {
+      width: 100%;
+      background: #34333a;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+
+    svg {
+      display: block;
+      width: 100%;
+      height: auto;
+    }
+
+    .node { fill: var(--panel); stroke: var(--line-strong); stroke-width: 1.5; }
+    .node-soft { fill: #3a3941; stroke: var(--line); stroke-width: 1.2; }
+    .node-accent { fill: #47382f; stroke: var(--accent); stroke-width: 2; }
+    .node-blue { fill: #343947; stroke: var(--blue); stroke-width: 1.6; }
+    .node-green { fill: #354139; stroke: var(--green); stroke-width: 1.6; }
+    .node-yellow { fill: #443e2f; stroke: var(--yellow); stroke-width: 1.6; }
+    .node-red { fill: #443531; stroke: var(--red); stroke-width: 1.6; }
+    .zone { fill: rgba(238, 232, 223, .035); stroke: var(--line); stroke-width: 1.2; stroke-dasharray: 8 8; }
+    .label { fill: var(--ink); font-family: var(--sans); font-size: 16px; font-weight: 700; letter-spacing: 0; }
+    .small { fill: var(--muted); font-family: var(--sans); font-size: 12px; font-weight: 500; letter-spacing: 0; }
+    .mono { fill: var(--muted); font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 0; }
+    .caption { fill: var(--faint); font-family: var(--sans); font-size: 12px; font-weight: 500; letter-spacing: 0; }
+    .edge { fill: none; stroke: var(--line-strong); stroke-width: 2; marker-end: url(#arrow); }
+    .edge-accent { fill: none; stroke: var(--accent); stroke-width: 2.4; marker-end: url(#arrowAccent); }
+    .edge-blue { fill: none; stroke: var(--blue); stroke-width: 2; marker-end: url(#arrowBlue); }
+    .edge-green { fill: none; stroke: var(--green); stroke-width: 2; marker-end: url(#arrowGreen); }
+    .edge-muted { fill: none; stroke: rgba(238, 232, 223, .28); stroke-width: 1.6; stroke-dasharray: 6 6; marker-end: url(#arrow); }
+    .badge { fill: var(--accent-soft); stroke: rgba(239, 124, 47, .42); stroke-width: 1; }
+    .badge-text { fill: #f3c5a8; font-family: var(--mono); font-size: 12px; font-weight: 600; letter-spacing: 0; }
+    .lane { fill: rgba(238, 232, 223, .035); stroke: rgba(238, 232, 223, .12); stroke-width: 1; }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 12px;
+      margin-top: 18px;
+    }
+
+    .summary-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px 16px;
+      background: rgba(238, 232, 223, .035);
+      min-height: 104px;
+    }
+
+    .summary-item strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 6px;
+      color: var(--ink);
+    }
+
+    .summary-item p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    footer {
+      margin-top: 36px;
+      color: var(--faint);
+      font-size: 12px;
+      border-top: 1px solid var(--line);
+      padding-top: 18px;
+    }
+
+    @media (max-width: 860px) {
+      main { width: min(100vw - 24px, 1480px); padding-top: 24px; }
+      header, .section-head { grid-template-columns: 1fr; }
+      .meta { justify-items: start; white-space: normal; }
+      .summary-grid { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 560px) {
+      .summary-grid { grid-template-columns: 1fr; }
+      h1 { font-size: 28px; }
+      h2 { font-size: 20px; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1>Seshat - architecture détaillée du runtime</h1>
+      <p class="subtitle">Lecture du code courant du dépôt Go <strong>seshat</strong> : surfaces publiques, moteur interne, boucle agentique, exécution d'outils, permissions, mémoire, RAG, providers, MCP, sandbox et agents persistants.</p>
+    </div>
+    <div class="meta">
+      <span>repo: D:\Documents\PROJECTS\ai\seshat</span>
+      <span>source primaire: code cmd/, pkg/, internal/</span>
+    </div>
+  </header>
+
+  <div class="legend" aria-label="Légende">
+    <span><i class="swatch" style="background:#47382f"></i> Chemin critique runtime</span>
+    <span><i class="swatch" style="background:#343947"></i> Interfaces publiques</span>
+    <span><i class="swatch" style="background:#354139"></i> Etat et persistance</span>
+    <span><i class="swatch" style="background:#443e2f"></i> Extensions et outils</span>
+    <span><i class="swatch" style="background:#443531"></i> Gouvernance et sécurité</span>
+  </div>
+
+  <section>
+    <div class="section-head">
+      <h2>1. Carte d'architecture globale</h2>
+      <p class="note">Le dépôt expose le runtime par CLI, gRPC et SDK. Tout converge vers `pkg/sdk.NewClient`, qui assemble le moteur interne, les providers, les outils, la mémoire, les permissions, les stores, le navigateur, les goals et les agents.</p>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 1440 900" role="img" aria-labelledby="title-global desc-global">
+        <title id="title-global">Architecture globale de Seshat</title>
+        <desc id="desc-global">Diagramme des entrées, de la couche publique pkg, du moteur interne et des sous-systemes externes.</desc>
+        <defs>
+          <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="rgba(238,232,223,.62)"/></marker>
+          <marker id="arrowAccent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#ef7c2f"/></marker>
+          <marker id="arrowBlue" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#7d9ccf"/></marker>
+          <marker id="arrowGreen" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#8fbf9f"/></marker>
+        </defs>
+
+        <rect class="zone" x="48" y="44" width="1344" height="812" rx="8"/>
+        <text class="caption" x="72" y="76">Règle de frontière: les consommateurs externes importent `pkg/*`; `internal/*` reste privé au runtime.</text>
+
+        <rect class="node-blue" x="96" y="132" width="264" height="116" rx="8"/>
+        <text class="label" x="120" y="164">Entrées exécutables</text>
+        <text class="mono" x="120" y="192">cmd/cli</text>
+        <text class="mono" x="120" y="216">cmd/grpc</text>
+        <text class="small" x="220" y="192">TUI, run, sessions</text>
+        <text class="small" x="220" y="216">service :50051</text>
+
+        <rect class="node-blue" x="96" y="344" width="264" height="116" rx="8"/>
+        <text class="label" x="120" y="376">Embedders Go</text>
+        <text class="mono" x="120" y="404">pkg/sdk</text>
+        <text class="small" x="120" y="432">Client, Session, callbacks, queues, stores</text>
+
+        <rect class="node-accent" x="496" y="288" width="320" height="172" rx="8"/>
+        <text class="label" x="524" y="324">Engine core</text>
+        <text class="mono" x="524" y="356">internal/engine</text>
+        <text class="small" x="524" y="388">Engine, Session, Loop, state, recovery</text>
+        <text class="small" x="524" y="416">stage overlays, compaction, streaming, stop hooks</text>
+        <rect class="badge" x="524" y="438" width="132" height="28" rx="6"/>
+        <text class="badge-text" x="540" y="456">chemin critique</text>
+
+        <rect class="node-red" x="496" y="552" width="320" height="128" rx="8"/>
+        <text class="label" x="524" y="584">Gouvernance</text>
+        <text class="mono" x="524" y="612">internal/permissions</text>
+        <text class="small" x="524" y="640">modes, règles, hooks, classifier, granular</text>
+
+        <rect class="node-yellow" x="952" y="120" width="300" height="132" rx="8"/>
+        <text class="label" x="980" y="152">Providers LLM</text>
+        <text class="mono" x="980" y="180">internal/providers</text>
+        <text class="small" x="980" y="208">16 providers: Anthropic, OpenAI, Codex, Kimi...</text>
+        <text class="small" x="980" y="232">adapters, retry, fallback, circuit breaker</text>
+
+        <rect class="node-yellow" x="952" y="312" width="300" height="148" rx="8"/>
+        <text class="label" x="980" y="344">Outils et extensions</text>
+        <text class="mono" x="980" y="372">internal/tools</text>
+        <text class="small" x="980" y="400">files, bash, web, browser, MCP, skills, FIM</text>
+        <text class="small" x="980" y="428">agents, notebooks, automation daemon, media</text>
+
+        <rect class="node-green" x="952" y="536" width="300" height="144" rx="8"/>
+        <text class="label" x="980" y="568">Etat et connaissances</text>
+        <text class="mono" x="980" y="596">db, storage, memory, rag</text>
+        <text class="small" x="980" y="624">sessions SQLite/FS, artefacts local/S3</text>
+        <text class="small" x="980" y="652">goals, mémoire long-terme, BM25 + vecteurs</text>
+
+        <rect class="node-soft" x="96" y="592" width="264" height="88" rx="8"/>
+        <text class="label" x="120" y="624">seshat-ai</text>
+        <text class="small" x="120" y="652">plateforme séparée au-dessus du SDK</text>
+
+        <path class="edge-blue" d="M360 190 H424 V344 H496"/>
+        <path class="edge-blue" d="M360 402 H496"/>
+        <path class="edge-accent" d="M816 344 H952"/>
+        <path class="edge-accent" d="M816 388 H900 V386 H952"/>
+        <path class="edge" d="M656 460 V552"/>
+        <path class="edge-green" d="M816 612 H952"/>
+        <path class="edge-muted" d="M360 636 H424 V424 H496"/>
+        <path class="edge" d="M1102 252 V312"/>
+        <text class="caption" x="398" y="176">utilise</text>
+        <text class="caption" x="398" y="392">embarque</text>
+        <text class="caption" x="844" y="328">appels modèle</text>
+        <text class="caption" x="844" y="376">tool_use</text>
+        <text class="caption" x="676" y="516">contrôle</text>
+        <text class="caption" x="840" y="604">lit/écrit</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>2. Cycle complet d'un tour agentique</h2>
+      <p class="note">`Session.SubmitMessage` persiste l'entrée utilisateur, prépare le prompt, calcule la surface d'outils effective et lance `Loop.Run`. La boucle alterne appels modèle et exécution d'outils jusqu'à fin de tour, récupération, compaction, stop hook ou limite.</p>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 1440 820" role="img" aria-labelledby="title-turn desc-turn">
+        <title id="title-turn">Séquence d'un tour Seshat</title>
+        <desc id="desc-turn">Séquence entre host, session SDK, boucle moteur, provider, orchestrateur et stores.</desc>
+        <defs>
+          <marker id="arrow2" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="rgba(238,232,223,.62)"/></marker>
+          <marker id="arrow2Accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#ef7c2f"/></marker>
+        </defs>
+
+        <rect class="lane" x="64" y="96" width="176" height="628" rx="8"/>
+        <rect class="lane" x="284" y="96" width="176" height="628" rx="8"/>
+        <rect class="lane" x="504" y="96" width="176" height="628" rx="8"/>
+        <rect class="lane" x="724" y="96" width="176" height="628" rx="8"/>
+        <rect class="lane" x="944" y="96" width="176" height="628" rx="8"/>
+        <rect class="lane" x="1164" y="96" width="176" height="628" rx="8"/>
+
+        <text class="label" x="104" y="132">Host</text>
+        <text class="mono" x="96" y="156">CLI/gRPC/app</text>
+        <text class="label" x="320" y="132">SDK Session</text>
+        <text class="mono" x="316" y="156">pkg/sdk</text>
+        <text class="label" x="548" y="132">Loop</text>
+        <text class="mono" x="532" y="156">engine</text>
+        <text class="label" x="748" y="132">Provider</text>
+        <text class="mono" x="748" y="156">LLM API</text>
+        <text class="label" x="968" y="132">Orchestrator</text>
+        <text class="mono" x="980" y="156">execution</text>
+        <text class="label" x="1192" y="132">Stores</text>
+        <text class="mono" x="1192" y="156">db/storage</text>
+
+        <line class="edge" style="marker-end:url(#arrow2)" x1="152" y1="212" x2="372" y2="212"/>
+        <text class="small" x="180" y="200">SubmitMessage(ctx, prompt)</text>
+        <line class="edge" style="marker-end:url(#arrow2)" x1="372" y1="252" x2="1252" y2="252"/>
+        <text class="small" x="408" y="240">persiste message, directives, métadonnées, événement turn.started</text>
+        <line class="edge" style="marker-end:url(#arrow2Accent)" x1="372" y1="296" x2="592" y2="296"/>
+        <text class="small" x="404" y="284">build RunRequest + effective tool surface</text>
+        <line class="edge" style="marker-end:url(#arrow2Accent)" x1="592" y1="340" x2="812" y2="340"/>
+        <text class="small" x="620" y="328">prompt + transcript + tools</text>
+        <line class="edge" style="marker-end:url(#arrow2)" x1="812" y1="384" x2="592" y2="384"/>
+        <text class="small" x="628" y="372">stream chunks vers callbacks + EventQueue</text>
+        <line class="edge" style="marker-end:url(#arrow2Accent)" x1="592" y1="428" x2="1032" y2="428"/>
+        <text class="small" x="632" y="416">si tool_use: executeTools</text>
+        <line class="edge" style="marker-end:url(#arrow2)" x1="1032" y1="472" x2="1032" y2="536"/>
+        <text class="small" x="1056" y="500">validate, backfill, hooks</text>
+        <line class="edge" style="marker-end:url(#arrow2)" x1="1032" y1="544" x2="1032" y2="608"/>
+        <text class="small" x="1056" y="572">permissions, safety, call</text>
+        <line class="edge" style="marker-end:url(#arrow2)" x1="1032" y1="632" x2="592" y2="632"/>
+        <text class="small" x="636" y="620">tool_result + contexte modifié</text>
+        <path class="edge-muted" style="marker-end:url(#arrow2)" d="M592 632 V676 H812 V340"/>
+        <text class="caption" x="648" y="700">répète aussi après tool_search si des outils différés sont découverts</text>
+        <line class="edge" style="marker-end:url(#arrow2)" x1="592" y1="736" x2="1252" y2="736"/>
+        <text class="small" x="640" y="724">persist final state, usage, goals, tool telemetry, title async</text>
+        <line class="edge" style="marker-end:url(#arrow2)" x1="372" y1="780" x2="152" y2="780"/>
+        <text class="small" x="188" y="768">SessionResponse</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>3. Système d'outils et de contrôle</h2>
+      <p class="note">Les outils sont enregistrés dans `internal/tools/builtin`, filtrés par surface active puis exécutés par l'orchestrateur. Les permissions, hooks, safety checks et sandboxes encadrent chaque appel avant l'effet réel.</p>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 1440 900" role="img" aria-labelledby="title-tools desc-tools">
+        <title id="title-tools">Ecosystème d'outils de Seshat</title>
+        <desc id="desc-tools">Carte des outils intégrés autour du registre, de l'orchestrateur et de la permission engine.</desc>
+        <defs>
+          <marker id="arrow3" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="rgba(238,232,223,.62)"/></marker>
+          <marker id="arrow3Accent" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="#ef7c2f"/></marker>
+        </defs>
+
+        <rect class="node-accent" x="556" y="124" width="328" height="128" rx="8"/>
+        <text class="label" x="584" y="156">Tool Registry</text>
+        <text class="mono" x="584" y="184">internal/tools/registry</text>
+        <text class="small" x="584" y="212">eager + deferred tools, surface par session</text>
+
+        <rect class="node-yellow" x="136" y="332" width="248" height="120" rx="8"/>
+        <text class="label" x="164" y="364">Fichiers et docs</text>
+        <text class="small" x="164" y="392">read, write, edit, patch</text>
+        <text class="small" x="164" y="420">glob, grep, PDF, DOCX, Excel, docling</text>
+
+        <rect class="node-red" x="456" y="332" width="248" height="120" rx="8"/>
+        <text class="label" x="484" y="364">Shell et sandbox</text>
+        <text class="small" x="484" y="392">bash, stdin, job output</text>
+        <text class="small" x="484" y="420">Docker optionnel, Landlock/Linux, local fallback</text>
+
+        <rect class="node-yellow" x="776" y="332" width="248" height="120" rx="8"/>
+        <text class="label" x="804" y="364">Web et browser</text>
+        <text class="small" x="804" y="392">search, fetch, page actions</text>
+        <text class="small" x="804" y="420">network policy, screenshots, downloads</text>
+
+        <rect class="node-green" x="1096" y="332" width="248" height="120" rx="8"/>
+        <text class="label" x="1124" y="364">RAG et mémoire</text>
+        <text class="small" x="1124" y="392">rag_ingest, rag_search, rag_delete</text>
+        <text class="small" x="1124" y="420">memory graph, semantic chunker, vectors</text>
+
+        <rect class="node-yellow" x="136" y="552" width="248" height="120" rx="8"/>
+        <text class="label" x="164" y="584">MCP et skills</text>
+        <text class="small" x="164" y="612">mcp_*, list/read/validate skills</text>
+        <text class="small" x="164" y="640">dynamic tools through servers</text>
+
+        <rect class="node-yellow" x="456" y="552" width="248" height="120" rx="8"/>
+        <text class="label" x="484" y="584">Agents et workflow</text>
+        <text class="small" x="484" y="612">agent, spawn, wait, resume, list, send, close</text>
+        <text class="small" x="484" y="640">workflow DAG, plan store, goal store</text>
+
+        <rect class="node-yellow" x="776" y="552" width="248" height="120" rx="8"/>
+        <text class="label" x="804" y="584">Notebooks et automation</text>
+        <text class="small" x="804" y="612">ipynb CRUD, kernel execution</text>
+        <text class="small" x="804" y="640">schedule/list/update jobs via HTTP daemon</text>
+
+        <rect class="node-yellow" x="1096" y="552" width="248" height="120" rx="8"/>
+        <text class="label" x="1124" y="584">Média et social</text>
+        <text class="small" x="1124" y="612">image, TTS, STT, code_complete</text>
+        <text class="small" x="1124" y="640">HN, dev.to, notification stubs</text>
+
+        <rect class="node-accent" x="456" y="744" width="248" height="92" rx="8"/>
+        <text class="label" x="484" y="776">Orchestrator</text>
+        <text class="small" x="484" y="804">12 stages, concurrent + serial batches</text>
+
+        <rect class="node-red" x="776" y="744" width="248" height="92" rx="8"/>
+        <text class="label" x="804" y="776">Permission engine</text>
+        <text class="small" x="804" y="804">bypass, auto, acceptEdits, onRequest, never, granular</text>
+
+        <path class="edge" style="marker-end:url(#arrow3)" d="M720 252 V300 H260 V332"/>
+        <path class="edge" style="marker-end:url(#arrow3)" d="M720 252 V300 H580 V332"/>
+        <path class="edge" style="marker-end:url(#arrow3)" d="M720 252 V300 H900 V332"/>
+        <path class="edge" style="marker-end:url(#arrow3)" d="M720 252 V300 H1220 V332"/>
+        <path class="edge" style="marker-end:url(#arrow3)" d="M720 252 V500 H260 V552"/>
+        <path class="edge" style="marker-end:url(#arrow3)" d="M720 252 V500 H580 V552"/>
+        <path class="edge" style="marker-end:url(#arrow3)" d="M720 252 V500 H900 V552"/>
+        <path class="edge" style="marker-end:url(#arrow3)" d="M720 252 V500 H1220 V552"/>
+        <path class="edge-accent" style="marker-end:url(#arrow3Accent)" d="M580 672 V744"/>
+        <path class="edge-accent" style="marker-end:url(#arrow3Accent)" d="M900 672 V744"/>
+        <path class="edge" style="marker-end:url(#arrow3)" d="M704 790 H776"/>
+        <text class="caption" x="608" y="716">tool_use entrants</text>
+        <text class="caption" x="716" y="780">contrôle avant effet</text>
+      </svg>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head">
+      <h2>4. Couches, packages et zones d'extension</h2>
+      <p class="note">Le runtime est conçu comme un noyau interne protégé par une API publique. Les extensions principales sont providers, tools, MCP, skills, RAG, storage, workflows, companion, FIM et automation.</p>
+    </div>
+    <div class="diagram">
+      <svg viewBox="0 0 1440 760" role="img" aria-labelledby="title-layers desc-layers">
+        <title id="title-layers">Couches du dépôt Seshat</title>
+        <desc id="desc-layers">Diagramme en couches montrant les points d'entrée, l'API publique, le noyau interne, les services et les dépendances externes.</desc>
+        <defs>
+          <marker id="arrow4" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="rgba(238,232,223,.62)"/></marker>
+        </defs>
+
+        <rect class="node-blue" x="128" y="72" width="1184" height="84" rx="8"/>
+        <text class="label" x="164" y="108">Entrées et hôtes</text>
+        <text class="small" x="164" y="132">`cmd/cli`, `cmd/grpc`, apps Go, et plateforme externe `seshat-ai` qui consomme le SDK</text>
+
+        <rect class="node-blue" x="128" y="192" width="1184" height="96" rx="8"/>
+        <text class="label" x="164" y="228">API publique `pkg/`</text>
+        <text class="small" x="164" y="252">`sdk`, `grpc`, `types`, `providers`, `mcp`, `skills`, `rag`, `storage`, `workspace`, `workflow`, `companion`, `monitoring`</text>
+
+        <rect class="node-accent" x="128" y="324" width="1184" height="116" rx="8"/>
+        <text class="label" x="164" y="360">Noyau runtime `internal/engine`</text>
+        <text class="small" x="164" y="384">`Engine` crée les sessions, `Session` gère le cycle multi-tour, `Loop` pilote modèle, tools, recovery, compaction, budget et streaming</text>
+        <text class="mono" x="164" y="412">engine.go · session.go · loop.go · state.go · streaming_tools.go · stop_hooks.go</text>
+
+        <rect class="node-yellow" x="128" y="476" width="560" height="108" rx="8"/>
+        <text class="label" x="164" y="512">Sous-systèmes d'action</text>
+        <text class="small" x="164" y="536">`execution`, `tools`, `permissions`, `sandbox`, `web/browser`, `hooks`, `modes`, `prompt`, `fim`</text>
+
+        <rect class="node-green" x="752" y="476" width="560" height="108" rx="8"/>
+        <text class="label" x="788" y="512">Sous-systèmes d'état</text>
+        <text class="small" x="788" y="536">`db`, `storage`, `memory`, `rag`, `vector`, `runtime/tasks`, `monitoring`, `agent/goal`, `agent/mailbox/team`</text>
+
+        <rect class="node-soft" x="128" y="620" width="1184" height="84" rx="8"/>
+        <text class="label" x="164" y="656">Dépendances et services externes configurables</text>
+        <text class="small" x="164" y="680">LLM APIs, OAuth Codex, Ollama local, MCP servers, navigateur go-rod, docling-serve, SQLite, S3, Qdrant, pgvector, Chroma, automation daemon</text>
+
+        <path class="edge" style="marker-end:url(#arrow4)" d="M720 156 V192"/>
+        <path class="edge" style="marker-end:url(#arrow4)" d="M720 288 V324"/>
+        <path class="edge" style="marker-end:url(#arrow4)" d="M720 440 V476"/>
+        <path class="edge" style="marker-end:url(#arrow4)" d="M720 584 V620"/>
+        <path class="edge-muted" style="marker-end:url(#arrow4)" d="M752 236 H1328 V384 H1312"/>
+        <text class="caption" x="1064" y="224">interdit: `internal` importé par l'extérieur</text>
+      </svg>
+    </div>
+  </section>
+
+  <div class="summary-grid">
+    <div class="summary-item">
+      <strong>Point de vérité</strong>
+      <p>`pkg/sdk.NewClient` est le lieu d'assemblage: providers, stores, registry, MCP, browser, goals, agents, mémoire, permissions, monitoring et moteur.</p>
+    </div>
+    <div class="summary-item">
+      <strong>Flux critique</strong>
+      <p>`SubmitMessage` prépare l'état puis `Loop.Run` alterne provider et tools jusqu'au résultat final du tour.</p>
+    </div>
+    <div class="summary-item">
+      <strong>Extension saine</strong>
+      <p>Ajouter un outil dans `internal/tools/&lt;category&gt;`, un provider via `internal/providers/adapter.go` et `registry.go`, exposer seulement ce qui doit vivre dans `pkg/`.</p>
+    </div>
+    <div class="summary-item">
+      <strong>Frontière produit</strong>
+      <p>Ce dépôt ne porte pas users, orgs, billing ni backend produit; ces responsabilités appartiennent à `seshat-ai`.</p>
+    </div>
+  </div>
+
+  <footer>
+    Diagramme corrigé avec le code comme source primaire: `pkg/sdk/client.go`, `pkg/sdk/client_config.go`, `pkg/sdk/sdk_session.go`, `internal/engine/*`, `internal/execution/orchestrator.go`, `internal/permissions/engine.go`, `internal/tools/builtin/*`, `internal/providers/*`, `internal/rag/service.go`, `internal/agent/*`, `internal/mailbox/*`, `internal/team/*`.
+  </footer>
+</main>
+</body>
+</html>
