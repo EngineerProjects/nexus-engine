@@ -34,7 +34,7 @@ func (n *Elasticsearch) Description() dataflow.NodeDescription {
 		Description: "Runs one operation against an Elasticsearch index. search returns one item per hit (with _id/_score merged with the source fields); index/get/delete return one item with the raw response. " +
 			"Parameters: baseURLSecretRef (string, required) — name of a configured dataflow secret holding the base URL (e.g. \"https://es.internal:9200\"). index (string, required). operation (string, required) — search/index/get/delete. id (string, required for get/delete, optional for index). document (object, for index). query (object, for search — an Elasticsearch query DSL clause).",
 		Properties: []dataflow.NodeProperty{
-			{Name: "baseURLSecretRef", DisplayName: "Base URL secret", Type: dataflow.PropString, Required: true,
+			{Name: "baseURLSecretRef", DisplayName: "Base URL secret", Type: dataflow.PropSecretRef, Required: true,
 				Description: "Name of a configured dataflow secret holding the base URL, e.g. \"https://es.internal:9200\"."},
 			{Name: "index", DisplayName: "Index", Type: dataflow.PropString, Required: true},
 			{Name: "operation", DisplayName: "Operation", Type: dataflow.PropOptions, Required: true, Options: []dataflow.NodePropertyOption{
