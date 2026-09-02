@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
+	"math/rand"
 	"sort"
 	"strings"
 	"time"
@@ -64,8 +66,9 @@ type LoopConfig struct {
 	StopHookMode            string `json:"stop_hook_mode,omitempty"`              // "first" (default) or "all"
 	StopHookContinueOnError bool   `json:"stop_hook_continue_on_error,omitempty"` // continue if hook errors
 	// Additional recovery options
-	MaxRecoveryAttempts       int `json:"max_recovery_attempts,omitempty"`       // total recovery attempts per turn
-	RecoveryBackoffMultiplier int `json:"recovery_backoff_multiplier,omitempty"` // milliseconds
+	MaxRecoveryAttempts       int `json:"max_recovery_attempts,omitempty"`         // total recovery attempts per turn
+	RecoveryBackoffMultiplier int `json:"recovery_backoff_multiplier,omitempty"`   // milliseconds; base delay for attempt 1, doubled each attempt after
+	RecoveryBackoffMaxDelay   int `json:"recovery_backoff_max_delay_ms,omitempty"` // milliseconds; caps the exponential growth, 0 = default (30s)
 }
 
 // DefaultLoopConfig returns default loop configuration.
@@ -1331,15 +1334,42 @@ func (l *Loop) recoveryLabel(err error) string {
 	return "recoverable_network"
 }
 
+// defaultRecoveryBackoffMultiplierMs and defaultRecoveryBackoffMaxDelayMs are
+// the fallbacks used when the corresponding LoopConfig field is unset (<=0).
+const (
+	defaultRecoveryBackoffMultiplierMs = 250
+	defaultRecoveryBackoffMaxDelayMs   = 30000 // 30s
+)
+
+// computeRecoveryBackoff returns the delay before recovery attempt N
+// (1-indexed). Exponential (doubling each attempt, capped at maxDelayMs)
+// rather than linear (multiplierMs*attempt, as this used to be), plus up to
+// 25% jitter, so many sessions/jobs hitting the same upstream outage don't
+// retry in lockstep - a synchronized "thundering herd" against an
+// already-struggling provider. Idea from studying neul-labs/m9m (MIT),
+// which does the same for its own retry policy. Pulled out of
+// waitRecoveryBackoff as a pure function so the growth/cap/jitter math is
+// unit-testable without a real timer.
+func computeRecoveryBackoff(attempt, multiplierMs, maxDelayMs int) time.Duration {
+	if multiplierMs <= 0 {
+		multiplierMs = defaultRecoveryBackoffMultiplierMs
+	}
+	if maxDelayMs <= 0 {
+		maxDelayMs = defaultRecoveryBackoffMaxDelayMs
+	}
+	delayMs := float64(multiplierMs) * math.Pow(2, float64(attempt-1))
+	if delayMs > float64(maxDelayMs) {
+		delayMs = float64(maxDelayMs)
+	}
+	delayMs += delayMs * 0.25 * rand.Float64()
+	return time.Duration(delayMs) * time.Millisecond
+}
+
 func (l *Loop) waitRecoveryBackoff(ctx context.Context, attempt int) error {
 	if attempt <= 0 {
 		return nil
 	}
-	multiplier := l.config.RecoveryBackoffMultiplier
-	if multiplier <= 0 {
-		multiplier = 250
-	}
-	delay := time.Duration(multiplier*attempt) * time.Millisecond
+	delay := computeRecoveryBackoff(attempt, l.config.RecoveryBackoffMultiplier, l.config.RecoveryBackoffMaxDelay)
 	timer := time.NewTimer(delay)
 	defer timer.Stop()
 

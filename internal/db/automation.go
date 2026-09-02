@@ -29,6 +29,9 @@ type AutomationJobRow struct {
 	AgentSysPrompt  string
 	Task            string
 	Status          string
+	MaxDuration     int64 // nanoseconds; 0 = unlimited
+	MaxRuns         int   // 0 = unlimited
+	RunCount        int
 	LastRunAt       *int64
 	NextRunAt       *int64
 	LastRunStatus   string
@@ -56,13 +59,13 @@ func (db *DB) CreateAutomationJob(ctx context.Context, row AutomationJobRow) err
 			id, owner_id, name, description,
 			trigger_type, trigger_cron, trigger_interval_ns, trigger_run_at,
 			agent_slug, agent_base_type, agent_tools_json, agent_skills_json, agent_model, agent_max_turns, agent_system_prompt,
-			task, status, last_run_at, next_run_at, last_run_status,
+			task, status, max_duration_ns, max_runs, run_count, last_run_at, next_run_at, last_run_status,
 			created_at, updated_at
-		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		row.ID, row.OwnerID, row.Name, row.Description,
 		row.TriggerType, row.TriggerCron, row.TriggerInterval, row.TriggerRunAt,
 		row.AgentSlug, row.AgentBaseType, row.AgentToolsJSON, row.AgentSkillsJSON, row.AgentModel, row.AgentMaxTurns, row.AgentSysPrompt,
-		row.Task, row.Status, row.LastRunAt, row.NextRunAt, row.LastRunStatus,
+		row.Task, row.Status, row.MaxDuration, row.MaxRuns, row.RunCount, row.LastRunAt, row.NextRunAt, row.LastRunStatus,
 		row.CreatedAt, row.UpdatedAt,
 	)
 	if err != nil {
@@ -76,7 +79,7 @@ func (db *DB) GetAutomationJob(ctx context.Context, id string) (*AutomationJobRo
 		SELECT id, owner_id, name, description,
 		       trigger_type, trigger_cron, trigger_interval_ns, trigger_run_at,
 		       agent_slug, agent_base_type, agent_tools_json, agent_skills_json, agent_model, agent_max_turns, agent_system_prompt,
-		       task, status, last_run_at, next_run_at, last_run_status,
+		       task, status, max_duration_ns, max_runs, run_count, last_run_at, next_run_at, last_run_status,
 		       created_at, updated_at
 		FROM automation_jobs WHERE id = ?`, id)
 	r, err := scanAutomationJobRow(row)
@@ -136,14 +139,16 @@ func (db *DB) UpdateAutomationJob(ctx context.Context, row AutomationJobRow) err
 			trigger_type = ?, trigger_cron = ?, trigger_interval_ns = ?, trigger_run_at = ?,
 			agent_slug = ?, agent_base_type = ?, agent_tools_json = ?, agent_skills_json = ?,
 			agent_model = ?, agent_max_turns = ?, agent_system_prompt = ?,
-			task = ?, status = ?, last_run_at = ?, next_run_at = ?, last_run_status = ?,
+			task = ?, status = ?, max_duration_ns = ?, max_runs = ?, run_count = ?,
+			last_run_at = ?, next_run_at = ?, last_run_status = ?,
 			updated_at = ?
 		WHERE id = ? AND (owner_id = ? OR owner_id = '')`,
 		row.Name, row.Description,
 		row.TriggerType, row.TriggerCron, row.TriggerInterval, row.TriggerRunAt,
 		row.AgentSlug, row.AgentBaseType, row.AgentToolsJSON, row.AgentSkillsJSON,
 		row.AgentModel, row.AgentMaxTurns, row.AgentSysPrompt,
-		row.Task, row.Status, row.LastRunAt, row.NextRunAt, row.LastRunStatus,
+		row.Task, row.Status, row.MaxDuration, row.MaxRuns, row.RunCount,
+		row.LastRunAt, row.NextRunAt, row.LastRunStatus,
 		row.UpdatedAt, row.ID, row.OwnerID,
 	)
 	if err != nil {
@@ -244,7 +249,7 @@ func scanAutomationJobRow(s scannable) (*AutomationJobRow, error) {
 		&r.ID, &r.OwnerID, &r.Name, &r.Description,
 		&r.TriggerType, &r.TriggerCron, &r.TriggerInterval, &r.TriggerRunAt,
 		&r.AgentSlug, &r.AgentBaseType, &r.AgentToolsJSON, &r.AgentSkillsJSON, &r.AgentModel, &r.AgentMaxTurns, &r.AgentSysPrompt,
-		&r.Task, &r.Status, &r.LastRunAt, &r.NextRunAt, &r.LastRunStatus,
+		&r.Task, &r.Status, &r.MaxDuration, &r.MaxRuns, &r.RunCount, &r.LastRunAt, &r.NextRunAt, &r.LastRunStatus,
 		&r.CreatedAt, &r.UpdatedAt,
 	)
 	if err != nil {
