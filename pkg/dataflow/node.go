@@ -39,12 +39,13 @@ type NodeDescription struct {
 type NodePropertyType string
 
 const (
-	PropString  NodePropertyType = "string"
-	PropText    NodePropertyType = "text" // multiline string
-	PropNumber  NodePropertyType = "number"
-	PropBoolean NodePropertyType = "boolean"
-	PropOptions NodePropertyType = "options" // single-select dropdown, static Options list
-	PropJSON    NodePropertyType = "json"    // free-form object/array, still authored as JSON text
+	PropString    NodePropertyType = "string"
+	PropText      NodePropertyType = "text" // multiline string
+	PropNumber    NodePropertyType = "number"
+	PropBoolean   NodePropertyType = "boolean"
+	PropOptions   NodePropertyType = "options"   // single-select dropdown, static Options list
+	PropJSON      NodePropertyType = "json"      // free-form object/array, still authored as JSON text
+	PropSecretRef NodePropertyType = "secretRef" // a named secret's value is resolved by the caller, never authored inline - see dataflow.SecretResolver
 )
 
 type NodePropertyOption struct {

@@ -27,9 +27,9 @@ func (Redis) Description() dataflow.NodeDescription {
 		Description: "Runs one Redis command, returning one item with the result. " +
 			"Parameters: addrSecretRef (string, required) — name of a configured dataflow secret holding \"host:port\". passwordSecretRef (string, optional). operation (string, required) — get/set/del/keys/hget/hset/lpush/rpush. key (string, required). value (string, for set/hset/lpush/rpush). field (string, for hget/hset).",
 		Properties: []dataflow.NodeProperty{
-			{Name: "addrSecretRef", DisplayName: "Address secret", Type: dataflow.PropString, Required: true,
+			{Name: "addrSecretRef", DisplayName: "Address secret", Type: dataflow.PropSecretRef, Required: true,
 				Description: "Name of a configured dataflow secret holding \"host:port\"."},
-			{Name: "passwordSecretRef", DisplayName: "Password secret", Type: dataflow.PropString},
+			{Name: "passwordSecretRef", DisplayName: "Password secret", Type: dataflow.PropSecretRef},
 			{Name: "operation", DisplayName: "Operation", Type: dataflow.PropOptions, Required: true, Options: []dataflow.NodePropertyOption{
 				{Label: "GET", Value: "get"}, {Label: "SET", Value: "set"}, {Label: "DEL", Value: "del"}, {Label: "KEYS", Value: "keys"},
 				{Label: "HGET", Value: "hget"}, {Label: "HSET", Value: "hset"}, {Label: "LPUSH", Value: "lpush"}, {Label: "RPUSH", Value: "rpush"},

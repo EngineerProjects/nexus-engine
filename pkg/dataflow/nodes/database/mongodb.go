@@ -30,7 +30,7 @@ func (MongoDB) Description() dataflow.NodeDescription {
 		Description: "Runs one operation against a MongoDB collection. find returns one item per matched document; insertOne/updateOne/deleteOne return one item summarizing the result. " +
 			"Parameters: uriSecretRef (string, required) — name of a configured dataflow secret holding the connection URI. database, collection (string, required). operation (string, required) — find/insertOne/updateOne/deleteOne. filter (object, for find/updateOne/deleteOne). document (object, for insertOne). update (object, for updateOne — wrapped in $set).",
 		Properties: []dataflow.NodeProperty{
-			{Name: "uriSecretRef", DisplayName: "Connection secret", Type: dataflow.PropString, Required: true,
+			{Name: "uriSecretRef", DisplayName: "Connection secret", Type: dataflow.PropSecretRef, Required: true,
 				Description: "Name of a configured dataflow secret holding the connection URI."},
 			{Name: "database", DisplayName: "Database", Type: dataflow.PropString, Required: true},
 			{Name: "collection", DisplayName: "Collection", Type: dataflow.PropString, Required: true},
