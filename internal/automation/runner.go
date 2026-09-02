@@ -8,6 +8,7 @@ import (
 	"github.com/KPO-Tech/seshat/internal/providers"
 	"github.com/KPO-Tech/seshat/internal/rag"
 	engineconfig "github.com/KPO-Tech/seshat/pkg/config"
+	"github.com/KPO-Tech/seshat/pkg/dataflow"
 	"github.com/KPO-Tech/seshat/pkg/sdk"
 )
 
@@ -62,6 +63,20 @@ type RunnerConfig struct {
 	// execution), where an LLM-issued shell command must never run
 	// unconfined on the shared host.
 	RequireSandbox bool
+	// NodeRegistry, when set, enables Job.Graph execution — a job with a
+	// non-nil Graph fails clearly (not silently) if this is nil. Left
+	// unset by default: registering pkg/dataflow/nodes/database's node
+	// types pulls in Postgres/MySQL/MongoDB/Redis/Elasticsearch client
+	// code, so which node types are available is a deployment choice made
+	// by whoever builds this Registry (seshat-backend/seshat-server's
+	// bootstrap), not something this package opts every embedder into by
+	// default.
+	NodeRegistry *dataflow.Registry
+	// Secrets resolves references used by dataflow nodes that need
+	// credentials (e.g. a database DSN) — same per-execution-scoped-by-
+	// caller pattern as RAGService/WebSearchKeys above. nil is valid for a
+	// Graph that uses no credential-needing node type.
+	Secrets dataflow.SecretResolver
 }
 
 // ExecuteConfig holds per-execution overrides applied on top of RunnerConfig.
