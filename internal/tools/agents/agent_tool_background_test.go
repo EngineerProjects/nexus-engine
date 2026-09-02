@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"os/exec"
 	"sync"
 	"testing"
 	"time"
@@ -38,6 +39,8 @@ func waitForEvent(t *testing.T, register func(func(types.RuntimeEvent))) types.R
 }
 
 func TestNotifyAgentTaskCompletion_Success(t *testing.T) {
+	requireWorkingBash(t)
+
 	manager := tasks.NewManager(nil, tasks.DefaultManagerConfig())
 	task, err := manager.CreateBashTask(context.Background(), "echo hello")
 	if err != nil {
@@ -72,6 +75,8 @@ func TestNotifyAgentTaskCompletion_Success(t *testing.T) {
 }
 
 func TestNotifyAgentTaskCompletion_Failure(t *testing.T) {
+	requireWorkingBash(t)
+
 	manager := tasks.NewManager(nil, tasks.DefaultManagerConfig())
 	task, err := manager.CreateBashTask(context.Background(), "exit 1")
 	if err != nil {
@@ -111,5 +116,14 @@ func TestNotifyAgentTaskCompletion_UnknownTask(t *testing.T) {
 	}
 	if _, hasError := event.ToolProgress.Metadata["error"]; !hasError {
 		t.Error("expected metadata.error to explain why it failed")
+	}
+}
+
+func requireWorkingBash(t *testing.T) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := exec.CommandContext(ctx, "bash", "-lc", "true").Run(); err != nil {
+		t.Skipf("bash is not available for background-task integration test: %v", err)
 	}
 }

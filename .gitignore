@@ -62,6 +62,7 @@ test.db
 claude-code/
 private/
 helps/
+graphify-out/
 
 # Temporary files
 *.log
