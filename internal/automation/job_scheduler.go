@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/KPO-Tech/seshat/pkg/dataflow"
 	"github.com/KPO-Tech/seshat/pkg/sdk"
 	"github.com/google/uuid"
 )
@@ -253,7 +254,7 @@ func (s *JobScheduler) execute(ctx context.Context, job *Job) {
 		defer cancel()
 	}
 
-	wf := &jobWorkflow{job: job}
+	wf := &jobWorkflow{job: job, registry: runner.cfg.NodeRegistry, secrets: runner.cfg.Secrets}
 	execErr := runner.Execute(execCtx, wf, ec)
 
 	endedAt := time.Now()
@@ -421,7 +422,7 @@ func (s *JobScheduler) RunNow(ctx context.Context, id string) (*JobRun, error) {
 			ec.ModelOverride = effectiveAgent.Model
 		}
 
-		wf := &jobWorkflow{job: job}
+		wf := &jobWorkflow{job: job, registry: runner.cfg.NodeRegistry, secrets: runner.cfg.Secrets}
 		execErr := runner.Execute(ctx, wf, ec)
 
 		endedAt := time.Now()
@@ -507,7 +508,7 @@ func (s *JobScheduler) RunEvent(ctx context.Context, job *Job, contextText strin
 		defer cancel()
 	}
 
-	wf := &jobWorkflow{job: job, eventContext: contextText}
+	wf := &jobWorkflow{job: job, eventContext: contextText, registry: runner.cfg.NodeRegistry, secrets: runner.cfg.Secrets}
 	execErr := runner.Execute(execCtx, wf, ec)
 
 	endedAt := time.Now()
@@ -560,8 +561,16 @@ type jobWorkflow struct {
 	job *Job
 	// eventContext, when non-empty, is appended below job.Task - set by
 	// RunEvent to give the agent the triggering event's details; empty for
-	// every other execution path (RunNow, the time-based ticker).
+	// every other execution path (RunNow, the time-based ticker). Unused
+	// when job.Graph is set — a graph's own trigger-context wiring is left
+	// to whichever node needs it (e.g. an "agent" node's prompt), not
+	// injected implicitly the way the flat Task path does.
 	eventContext string
+	// registry/secrets are the resolved Runner's RunnerConfig.NodeRegistry/
+	// Secrets, threaded through at jobWorkflow construction time (see
+	// execute/RunNow/RunEvent) — only used when job.Graph is set.
+	registry *dataflow.Registry
+	secrets  dataflow.SecretResolver
 }
 
 func (w *jobWorkflow) Name() string         { return w.job.ID }
@@ -569,6 +578,18 @@ func (w *jobWorkflow) Description() string  { return w.job.Description }
 func (w *jobWorkflow) SystemPrompt() string { return w.job.Agent.SystemPrompt }
 
 func (w *jobWorkflow) Run(ctx context.Context, session *sdk.Session) error {
+	return w.run(ctx, session)
+}
+
+// run does the actual work against the narrower messageSubmitter interface
+// rather than the concrete *sdk.Session, so the Graph-vs-Task branch is
+// unit-testable with a fake session (see dataflow_adapter_test.go) — Run
+// itself stays a one-line forward, since jobWorkflow must still satisfy the
+// Workflow interface's *sdk.Session signature for Runner.Execute to call it.
+func (w *jobWorkflow) run(ctx context.Context, session messageSubmitter) error {
+	if w.job.Graph != nil {
+		return runGraph(ctx, w.job.Graph, w.registry, w.secrets, session)
+	}
 	task := w.job.Task
 	if w.eventContext != "" {
 		task = task + "\n\n" + w.eventContext

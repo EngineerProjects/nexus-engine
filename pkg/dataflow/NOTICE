@@ -1,0 +1,49 @@
+This package's graph-execution design (level-based topological execution,
+cycle detection, port-based data routing between nodes) was adapted from
+neul-labs/m9m (internal/engine, internal/connections), used under the MIT
+License:
+
+MIT License
+
+Copyright (c) 2024-2026 Dipankar Sarkar
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Phase 0 (engine.go, node.go, runtime.go, builtin.go): no source lines copied
+verbatim — interfaces and control flow reimplemented against Go idioms
+already used elsewhere in this SDK (see pkg/workflow).
+
+Phase 1 (nodes/http.go): the SSRF blocklist (blockedNetworks/blockedHosts in
+validateURLForSSRF) is a close port of m9m's internal/nodes/http SSRF guard —
+the same CIDR ranges and blocked hostnames, translated to Go idiom but not
+independently re-derived. Everything else in nodes/ (logic.go, data.go,
+wait.go, expr/pool.go) is an independent reimplementation informed by
+reading m9m's transform/expressions packages, not a port.
+
+Phase 2 (nodes/database/): independent reimplementations, not ports — the
+operation surface (executeQuery/insert/update/delete for SQL,
+get/set/del/keys/hget/hset/lpush/rpush for Redis, find/insertOne/updateOne/
+deleteOne for MongoDB, search/index/get/delete for Elasticsearch) mirrors
+m9m's node design, but the transport differs deliberately: m9m's Redis and
+MongoDB nodes only work through an HTTP REST proxy (Upstash-style / MongoDB
+Atlas Data API), which a plain self-hosted deployment doesn't expose — this
+package uses each service's native Go driver instead so it works against any
+standard deployment. sqlite.go also deliberately uses modernc.org/sqlite
+(pure Go) instead of m9m's mattn/go-sqlite3 (cgo), so importing this package
+never forces a C toolchain onto a consumer.

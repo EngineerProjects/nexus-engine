@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/KPO-Tech/seshat/pkg/dataflow"
 )
 
 // ─── Trigger ──────────────────────────────────────────────────────────────────
@@ -137,7 +139,15 @@ type Job struct {
 	Trigger     Trigger
 	Agent       AgentConfig
 	Task        string
-	Status      JobStatus
+	// Graph, when set, runs as a pkg/dataflow deterministic node graph
+	// instead of a single Task prompt — one job trigger can drive a chain
+	// of HTTP calls/filters/database steps (and "agent"/"subworkflow" nodes
+	// for the steps that still need LLM judgment) rather than one flat
+	// agent turn. Task is ignored when Graph is non-nil. Requires the
+	// resolved Runner's RunnerConfig.NodeRegistry to be set — see
+	// jobWorkflow.runGraph.
+	Graph  *dataflow.Definition
+	Status JobStatus
 	// MaxDuration caps a single execution's wall-clock time; 0 = unlimited.
 	// Idea from studying neul-labs/m9m (MIT), which has the same concept on
 	// its schedule config - a hung agent turn would otherwise run forever.
