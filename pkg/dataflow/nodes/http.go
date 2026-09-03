@@ -103,7 +103,16 @@ func NewHTTPRequest() *HTTPRequest {
 func (n *HTTPRequest) Description() dataflow.NodeDescription {
 	return dataflow.NodeDescription{Type: "http_request", Name: "HTTP Request", Category: "Network",
 		Description: "Makes a single HTTP call and returns the response as one item (fields \"status\", \"headers\", and \"json\" or \"body\"). Private/internal/cloud-metadata addresses are blocked. " +
-			"Parameters: url (string, required). method (string, default \"GET\"). headers (object of string->string, optional). body (string, optional, sent as-is)."}
+			"Parameters: url (string, required). method (string, default \"GET\"). headers (object of string->string, optional). body (string, optional, sent as-is).",
+		Properties: []dataflow.NodeProperty{
+			{Name: "url", DisplayName: "URL", Type: dataflow.PropString, Required: true, Placeholder: "https://api.example.com/resource"},
+			{Name: "method", DisplayName: "Method", Type: dataflow.PropOptions, Default: "GET", Options: []dataflow.NodePropertyOption{
+				{Label: "GET", Value: "GET"}, {Label: "POST", Value: "POST"}, {Label: "PUT", Value: "PUT"},
+				{Label: "PATCH", Value: "PATCH"}, {Label: "DELETE", Value: "DELETE"}, {Label: "HEAD", Value: "HEAD"},
+			}},
+			{Name: "headers", DisplayName: "Headers", Type: dataflow.PropJSON, Description: "Object of header name -> value."},
+			{Name: "body", DisplayName: "Body", Type: dataflow.PropText, Description: "Sent as-is; set a Content-Type header to match."},
+		}}
 }
 
 func (n *HTTPRequest) ValidateParameters(params map[string]any) error {

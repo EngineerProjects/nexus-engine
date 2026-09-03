@@ -75,7 +75,17 @@ func NewSQLite() *sqlNode   { return newSQLNode("sqlite", "sqlite") }
 func (n *sqlNode) Description() dataflow.NodeDescription {
 	return dataflow.NodeDescription{Type: n.nodeType, Name: n.nodeType, Category: "Database",
 		Description: fmt.Sprintf("Runs a query against a %s database. executeQuery returns one item per row; insert/update/delete return one item with the affected row count (field \"rows_affected\"). ", n.nodeType) +
-			"Parameters: dsnSecretRef (string, required) — name of a configured dataflow secret holding the connection string. operation (string, required) — one of executeQuery/insert/update/delete. query (string, required) — the SQL, with ? placeholders. args (array, optional) — positional values for the placeholders."}
+			"Parameters: dsnSecretRef (string, required) — name of a configured dataflow secret holding the connection string. operation (string, required) — one of executeQuery/insert/update/delete. query (string, required) — the SQL, with ? placeholders. args (array, optional) — positional values for the placeholders.",
+		Properties: []dataflow.NodeProperty{
+			{Name: "dsnSecretRef", DisplayName: "Connection secret", Type: dataflow.PropSecretRef, Required: true,
+				Description: "Name of a configured dataflow secret holding the connection string."},
+			{Name: "operation", DisplayName: "Operation", Type: dataflow.PropOptions, Required: true, Options: []dataflow.NodePropertyOption{
+				{Label: "Execute query", Value: "executeQuery"}, {Label: "Insert", Value: "insert"},
+				{Label: "Update", Value: "update"}, {Label: "Delete", Value: "delete"},
+			}},
+			{Name: "query", DisplayName: "Query", Type: dataflow.PropText, Required: true, Placeholder: "SELECT * FROM table WHERE id = ?"},
+			{Name: "args", DisplayName: "Arguments", Type: dataflow.PropJSON, Description: "Positional values for the query's ? placeholders."},
+		}}
 }
 
 var validSQLOperations = map[string]bool{"executeQuery": true, "insert": true, "update": true, "delete": true}

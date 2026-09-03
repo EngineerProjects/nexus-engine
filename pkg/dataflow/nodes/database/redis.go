@@ -25,7 +25,21 @@ func NewRedis() Redis { return Redis{} }
 func (Redis) Description() dataflow.NodeDescription {
 	return dataflow.NodeDescription{Type: "redis", Name: "Redis", Category: "Database",
 		Description: "Runs one Redis command, returning one item with the result. " +
-			"Parameters: addrSecretRef (string, required) — name of a configured dataflow secret holding \"host:port\". passwordSecretRef (string, optional). operation (string, required) — get/set/del/keys/hget/hset/lpush/rpush. key (string, required). value (string, for set/hset/lpush/rpush). field (string, for hget/hset)."}
+			"Parameters: addrSecretRef (string, required) — name of a configured dataflow secret holding \"host:port\". passwordSecretRef (string, optional). operation (string, required) — get/set/del/keys/hget/hset/lpush/rpush. key (string, required). value (string, for set/hset/lpush/rpush). field (string, for hget/hset).",
+		Properties: []dataflow.NodeProperty{
+			{Name: "addrSecretRef", DisplayName: "Address secret", Type: dataflow.PropSecretRef, Required: true,
+				Description: "Name of a configured dataflow secret holding \"host:port\"."},
+			{Name: "passwordSecretRef", DisplayName: "Password secret", Type: dataflow.PropSecretRef},
+			{Name: "operation", DisplayName: "Operation", Type: dataflow.PropOptions, Required: true, Options: []dataflow.NodePropertyOption{
+				{Label: "GET", Value: "get"}, {Label: "SET", Value: "set"}, {Label: "DEL", Value: "del"}, {Label: "KEYS", Value: "keys"},
+				{Label: "HGET", Value: "hget"}, {Label: "HSET", Value: "hset"}, {Label: "LPUSH", Value: "lpush"}, {Label: "RPUSH", Value: "rpush"},
+			}},
+			{Name: "key", DisplayName: "Key", Type: dataflow.PropString, Required: true},
+			{Name: "value", DisplayName: "Value", Type: dataflow.PropString,
+				DisplayIf: &dataflow.DisplayCondition{Field: "operation", Equals: []string{"set", "hset", "lpush", "rpush"}}},
+			{Name: "field", DisplayName: "Field", Type: dataflow.PropString,
+				DisplayIf: &dataflow.DisplayCondition{Field: "operation", Equals: []string{"hget", "hset"}}},
+		}}
 }
 
 var validRedisOps = map[string]bool{"get": true, "set": true, "del": true, "keys": true, "hget": true, "hset": true, "lpush": true, "rpush": true}

@@ -9,6 +9,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.27] — 2026-09-03
+
+### Added
+- `pkg/dataflow`: `NodeDescription.Properties []NodeProperty` — a small, flat parameter schema (string/text/number/boolean/options/json field types, a single-condition `DisplayIf` for conditional visibility) so a consuming authoring UI can render real per-field forms instead of falling back to a raw-JSON textarea for every node type. Populated for `http_request`, `filter`, `if`, `switch` (`casesOrder`/`cases` stay JSON — a paired repeatable structure the flat model doesn't fit), `wait`, `agent`, and all six database node types. Left empty, deliberately, on `subworkflow` (a nested `workflow.Definition` isn't representable as flat fields) and `set` (its one real parameter is an arbitrary-keyed map, structurally like a fixed collection this system doesn't support). Additive and `omitempty` — any node type without `Properties` simply has none, the correct signal to fall back to raw JSON.
+- `pkg/dataflow`: `NodePropertyType` gains `"secretRef"`, and the 5 `*SecretRef` parameters across the database node types (`dsnSecretRef`, `uriSecretRef`, `addrSecretRef`, `passwordSecretRef`, `baseURLSecretRef`) are now typed with it instead of plain `string` — gives a consuming UI a real signal to render a secret picker instead of pattern-matching on the field name. Metadata/JSON-tag only, no `Execute`/`ValidateParameters` logic touched.
+
 ## [1.2.26] — 2026-09-02
 
 ### Added

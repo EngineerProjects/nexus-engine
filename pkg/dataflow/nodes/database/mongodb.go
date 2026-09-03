@@ -28,7 +28,23 @@ func NewMongoDB() MongoDB { return MongoDB{} }
 func (MongoDB) Description() dataflow.NodeDescription {
 	return dataflow.NodeDescription{Type: "mongodb", Name: "MongoDB", Category: "Database",
 		Description: "Runs one operation against a MongoDB collection. find returns one item per matched document; insertOne/updateOne/deleteOne return one item summarizing the result. " +
-			"Parameters: uriSecretRef (string, required) — name of a configured dataflow secret holding the connection URI. database, collection (string, required). operation (string, required) — find/insertOne/updateOne/deleteOne. filter (object, for find/updateOne/deleteOne). document (object, for insertOne). update (object, for updateOne — wrapped in $set)."}
+			"Parameters: uriSecretRef (string, required) — name of a configured dataflow secret holding the connection URI. database, collection (string, required). operation (string, required) — find/insertOne/updateOne/deleteOne. filter (object, for find/updateOne/deleteOne). document (object, for insertOne). update (object, for updateOne — wrapped in $set).",
+		Properties: []dataflow.NodeProperty{
+			{Name: "uriSecretRef", DisplayName: "Connection secret", Type: dataflow.PropSecretRef, Required: true,
+				Description: "Name of a configured dataflow secret holding the connection URI."},
+			{Name: "database", DisplayName: "Database", Type: dataflow.PropString, Required: true},
+			{Name: "collection", DisplayName: "Collection", Type: dataflow.PropString, Required: true},
+			{Name: "operation", DisplayName: "Operation", Type: dataflow.PropOptions, Required: true, Options: []dataflow.NodePropertyOption{
+				{Label: "Find", Value: "find"}, {Label: "Insert one", Value: "insertOne"},
+				{Label: "Update one", Value: "updateOne"}, {Label: "Delete one", Value: "deleteOne"},
+			}},
+			{Name: "filter", DisplayName: "Filter", Type: dataflow.PropJSON,
+				DisplayIf: &dataflow.DisplayCondition{Field: "operation", Equals: []string{"find", "updateOne", "deleteOne"}}},
+			{Name: "document", DisplayName: "Document", Type: dataflow.PropJSON,
+				DisplayIf: &dataflow.DisplayCondition{Field: "operation", Equals: []string{"insertOne"}}},
+			{Name: "update", DisplayName: "Update", Type: dataflow.PropJSON, Description: "Wrapped in $set.",
+				DisplayIf: &dataflow.DisplayCondition{Field: "operation", Equals: []string{"updateOne"}}},
+		}}
 }
 
 var validMongoOps = map[string]bool{"find": true, "insertOne": true, "updateOne": true, "deleteOne": true}
