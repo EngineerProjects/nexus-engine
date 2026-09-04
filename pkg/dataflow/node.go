@@ -25,6 +25,13 @@ type NodeDescription struct {
 	Description string         `json:"description"`
 	Category    string         `json:"category"`
 	Properties  []NodeProperty `json:"properties,omitempty"`
+	// IsTrigger marks a node type that can act as a graph's entry point (has
+	// no meaningful input - Run already seeds every node with no
+	// predecessors, trigger or not) and carries its own activation config
+	// (e.g. a schedule) rather than transforming upstream data. An authoring
+	// UI uses this to render trigger nodes distinctly (no input handle,
+	// grouped separately) without hardcoding a type-name list.
+	IsTrigger bool `json:"isTrigger,omitempty"`
 }
 
 // NodePropertyType is the set of parameter field widgets an authoring UI
