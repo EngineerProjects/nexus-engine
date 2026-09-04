@@ -22,4 +22,5 @@ func Register(registry *dataflow.Registry, pool *expr.Pool) {
 	registry.Register("set", NewSet(pool))
 	registry.Register("merge", NewMerge())
 	registry.Register("wait", NewWait())
+	registry.Register("schedule_trigger", NewScheduleTrigger())
 }
