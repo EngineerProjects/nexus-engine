@@ -4,10 +4,29 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/KPO-Tech/seshat/pkg/dataflow"
 	"github.com/KPO-Tech/seshat/pkg/dataflow/expr"
 )
+
+// logicBindings builds the bindings map for a per-item expression in
+// filter/if/switch - these nodes evaluate their whole parameter field as JS
+// (not the "=" convention ResolveValue looks for), so they don't call
+// ResolveValue themselves, but still get the same enriched bindings
+// (Tier 2.1) it would have offered: $itemIndex (the loop already has it),
+// $now/$today, and $node (nil-safe: a nil rt yields a working always-empty
+// accessor, matching how these nodes already tolerate a nil Runtime today).
+func logicBindings(rt *dataflow.Runtime, item dataflow.Item, itemIndex int) map[string]any {
+	now := time.Now()
+	return map[string]any{
+		"$json":      map[string]any(item),
+		"$itemIndex": itemIndex,
+		"$now":       now,
+		"$today":     now.Truncate(24 * time.Hour),
+		"$node":      rt.NodeAccessor(),
+	}
+}
 
 // Filter is the "filter" node type: keeps only items where expression
 // evaluates true, evaluated per item with $json bound to that item — same
@@ -39,8 +58,8 @@ func (n *Filter) ValidateParameters(params map[string]any) error {
 func (n *Filter) Execute(ctx context.Context, rt *dataflow.Runtime, input []dataflow.Item, params map[string]any) (dataflow.Output, error) {
 	expression := dataflow.StringParam(params, "expression", "")
 	kept := make([]dataflow.Item, 0, len(input))
-	for _, item := range input {
-		ok, err := n.pool.EvalBool(ctx, expression, map[string]any{"$json": map[string]any(item)})
+	for i, item := range input {
+		ok, err := n.pool.EvalBool(ctx, expression, logicBindings(rt, item, i))
 		if err != nil {
 			return dataflow.Output{}, fmt.Errorf("filter: %w", err)
 		}
@@ -79,8 +98,8 @@ func (n *If) ValidateParameters(params map[string]any) error {
 func (n *If) Execute(ctx context.Context, rt *dataflow.Runtime, input []dataflow.Item, params map[string]any) (dataflow.Output, error) {
 	expression := dataflow.StringParam(params, "expression", "")
 	var trueItems, falseItems []dataflow.Item
-	for _, item := range input {
-		ok, err := n.pool.EvalBool(ctx, expression, map[string]any{"$json": map[string]any(item)})
+	for i, item := range input {
+		ok, err := n.pool.EvalBool(ctx, expression, logicBindings(rt, item, i))
 		if err != nil {
 			return dataflow.Output{}, fmt.Errorf("if: %w", err)
 		}
@@ -148,11 +167,11 @@ func (n *Switch) Execute(ctx context.Context, rt *dataflow.Runtime, input []data
 	}
 
 	ports := map[string][]dataflow.Item{}
-	for _, item := range input {
+	for i, item := range input {
 		matched := ""
 		for _, caseName := range order {
 			expression, _ := cases[caseName].(string)
-			ok, err := n.pool.EvalBool(ctx, expression, map[string]any{"$json": map[string]any(item)})
+			ok, err := n.pool.EvalBool(ctx, expression, logicBindings(rt, item, i))
 			if err != nil {
 				return dataflow.Output{}, fmt.Errorf("switch case %q: %w", caseName, err)
 			}

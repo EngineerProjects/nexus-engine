@@ -2,6 +2,7 @@ package dataflow
 
 import (
 	"context"
+	"sync"
 
 	"github.com/KPO-Tech/seshat/pkg/workflow"
 )
@@ -17,6 +18,45 @@ type Runtime struct {
 	Secrets     SecretResolver
 	Agent       AgentCaller
 	Subworkflow SubworkflowRunner
+	// Expr enables expression resolution (ResolveParam/ResolveValue) for any
+	// node that opts in - nil (the default for a caller that doesn't set it,
+	// and for every existing Runtime{} literal/nil Runtime already in use)
+	// means expressions are off, not an error; nodes calling ResolveParam
+	// against a nil-Expr Runtime just get their literal values back
+	// unresolved.
+	Expr ExpressionEvaluator
+
+	nodeOutputsMu sync.RWMutex
+	nodeOutputs   map[string][]Item
+}
+
+// NodeOutput returns the named node's Output ("main"-collapsed, same shape
+// as NodeResult.Output) once Run has recorded it - only for a node that has
+// actually finished executing, mirroring n8n's own $('NodeName') execution-
+// order requirement. ok is false before that (including for a name that
+// will never exist). Safe to call from concurrently-running node
+// executions - Run itself is the only writer, under its own lock.
+func (rt *Runtime) NodeOutput(name string) ([]Item, bool) {
+	if rt == nil {
+		return nil, false
+	}
+	rt.nodeOutputsMu.RLock()
+	defer rt.nodeOutputsMu.RUnlock()
+	items, ok := rt.nodeOutputs[name]
+	return items, ok
+}
+
+// recordNodeOutput is called by Run as each node finishes - see engine.go.
+func (rt *Runtime) recordNodeOutput(name string, items []Item) {
+	if rt == nil {
+		return
+	}
+	rt.nodeOutputsMu.Lock()
+	defer rt.nodeOutputsMu.Unlock()
+	if rt.nodeOutputs == nil {
+		rt.nodeOutputs = make(map[string][]Item)
+	}
+	rt.nodeOutputs[name] = items
 }
 
 // SecretResolver resolves an opaque reference (e.g. a ConnectorAccount ID,

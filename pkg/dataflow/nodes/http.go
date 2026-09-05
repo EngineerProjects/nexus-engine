@@ -123,14 +123,32 @@ func (n *HTTPRequest) ValidateParameters(params map[string]any) error {
 }
 
 func (n *HTTPRequest) Execute(ctx context.Context, rt *dataflow.Runtime, input []dataflow.Item, params map[string]any) (dataflow.Output, error) {
+	// http_request makes one call per Run, not per item (see the type's own
+	// doc comment) - so expressions resolve against the first input item
+	// (or an empty item for a trigger-seeded run with no upstream node
+	// output), index 0, matching how the node already treats input as a
+	// single batch rather than looping over it.
+	item0 := dataflow.Item{}
+	if len(input) > 0 {
+		item0 = input[0]
+	}
+
 	method := strings.ToUpper(dataflow.StringParam(params, "method", "GET"))
-	rawURL := dataflow.StringParam(params, "url", "")
+	rawURLVal, err := dataflow.ResolveParam(ctx, rt, params, "url", item0, 0)
+	if err != nil {
+		return dataflow.Output{}, fmt.Errorf("resolve url: %w", err)
+	}
+	rawURL := dataflow.AsString(rawURLVal)
 	if err := n.checkSSRF(rawURL); err != nil {
 		return dataflow.Output{}, err
 	}
 
 	var bodyReader io.Reader
-	if body := dataflow.StringParam(params, "body", ""); body != "" {
+	bodyVal, err := dataflow.ResolveParam(ctx, rt, params, "body", item0, 0)
+	if err != nil {
+		return dataflow.Output{}, fmt.Errorf("resolve body: %w", err)
+	}
+	if body := dataflow.AsString(bodyVal); body != "" {
 		bodyReader = bytes.NewReader([]byte(body))
 	}
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, bodyReader)
@@ -139,7 +157,11 @@ func (n *HTTPRequest) Execute(ctx context.Context, rt *dataflow.Runtime, input [
 	}
 	if headers, ok := params["headers"].(map[string]any); ok {
 		for k, v := range headers {
-			if s, ok := v.(string); ok {
+			resolved, err := dataflow.ResolveValue(ctx, rt, v, item0, 0)
+			if err != nil {
+				return dataflow.Output{}, fmt.Errorf("resolve header %q: %w", k, err)
+			}
+			if s := dataflow.AsString(resolved); s != "" {
 				req.Header.Set(k, s)
 			}
 		}
