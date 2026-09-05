@@ -15,6 +15,15 @@ type Definition struct {
 	Name        string `json:"name" yaml:"name"`
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 	Nodes       []Node `json:"nodes" yaml:"nodes"`
+	// PinnedData freezes a node's output to a fixed set of items instead of
+	// actually running it - Run checks this (keyed by node ID) before
+	// invoking a node's own Execute, mirroring n8n's IPinData. Kept
+	// separate from each Node's own Parameters, since "frozen test output"
+	// is a different concept from real node configuration - a pinned
+	// node's ValidateParameters/Execute (and even its registry lookup) are
+	// never called at all, so a graph can be tested with a node whose real
+	// config is incomplete, or whose type isn't implemented yet.
+	PinnedData map[string][]Item `json:"pinned_data,omitempty" yaml:"pinned_data,omitempty"`
 }
 
 // Node is one step in the graph. Type selects the NodeExecutor (registered
@@ -61,6 +70,10 @@ type NodeResult struct {
 	Type    string `json:"type"`
 	Success bool   `json:"success"`
 	Skipped bool   `json:"skipped,omitempty"`
+	// Pinned is true when this result came from Definition.PinnedData
+	// rather than a real Execute call - lets a trace/UI consumer tell
+	// "this node actually ran" apart from "this used frozen test data".
+	Pinned bool `json:"pinned,omitempty"`
 	// Input/InputSource are exactly what this node received and, index for
 	// index, where each item came from - populated by Run's own scheduling
 	// loop (see engine.go), never by the node's own Execute, so every node
