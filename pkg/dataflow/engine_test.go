@@ -186,3 +186,128 @@ func TestRunSeedsStartingNodesWithInput(t *testing.T) {
 		t.Fatalf("expected seeded input, got %#v", out)
 	}
 }
+
+func TestRunRecordsInputSourceFromUpstreamNode(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("a", passthrough("a"))
+	reg.Register("b", passthrough("b"))
+	def := Definition{Nodes: []Node{
+		{ID: "a", Type: "a", Connections: map[string][]string{"main": {"b"}}},
+		{ID: "b", Type: "b"},
+	}}
+	result, err := Run(context.Background(), def, reg, nil, []Item{{"x": 1}}, Options{})
+	if err != nil || !result.Success {
+		t.Fatalf("run: err=%v success=%v results=%#v", err, result.Success, result.Results)
+	}
+	b := result.Results["b"]
+	if len(b.Input) != 1 || b.Input[0]["x"] != 1 {
+		t.Fatalf("expected b's Input to be a's output, got %#v", b.Input)
+	}
+	if len(b.InputSource) != 1 || b.InputSource[0] != (ItemSource{Node: "a", Port: "main"}) {
+		t.Fatalf("expected b's InputSource to point at a's main port, got %#v", b.InputSource)
+	}
+}
+
+func TestRunRecordsZeroValueInputSourceForSeedInput(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("start", passthrough("start"))
+	def := Definition{Nodes: []Node{{ID: "start", Type: "start"}}}
+	result, err := Run(context.Background(), def, reg, nil, []Item{{"seed": true}}, Options{})
+	if err != nil || !result.Success {
+		t.Fatalf("run: err=%v success=%v", err, result.Success)
+	}
+	src := result.Results["start"].InputSource
+	if len(src) != 1 || src[0] != (ItemSource{}) {
+		t.Fatalf("expected a zero-value ItemSource for seed input, got %#v", src)
+	}
+}
+
+func TestRunRecordsInputSourceFromBothProducersOnFanIn(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("left", funcExecutor{desc: NodeDescription{Type: "left"}, execute: func(_ context.Context, _ *Runtime, _ []Item, _ map[string]any) (Output, error) {
+		return Main([]Item{{"from": "left"}}), nil
+	}})
+	reg.Register("right", funcExecutor{desc: NodeDescription{Type: "right"}, execute: func(_ context.Context, _ *Runtime, _ []Item, _ map[string]any) (Output, error) {
+		return Main([]Item{{"from": "right"}}), nil
+	}})
+	reg.Register("sink", passthrough("sink"))
+
+	def := Definition{Nodes: []Node{
+		{ID: "left", Type: "left", Connections: map[string][]string{"main": {"sink"}}},
+		{ID: "right", Type: "right", Connections: map[string][]string{"main": {"sink"}}},
+		{ID: "sink", Type: "sink"},
+	}}
+	result, err := Run(context.Background(), def, reg, nil, nil, Options{})
+	if err != nil || !result.Success {
+		t.Fatalf("run: err=%v success=%v results=%#v", err, result.Success, result.Results)
+	}
+	sink := result.Results["sink"]
+	if len(sink.Input) != 2 || len(sink.InputSource) != 2 {
+		t.Fatalf("expected 2 items from 2 producers, got input=%#v sources=%#v", sink.Input, sink.InputSource)
+	}
+	// left/right run concurrently (same topological level) so arrival order
+	// isn't guaranteed - assert both producers are represented and each
+	// InputSource lines up with its own item, not just that two entries exist.
+	seenSources := map[ItemSource]bool{}
+	for i, item := range sink.Input {
+		from, _ := item["from"].(string)
+		src := sink.InputSource[i]
+		if src.Node != from || src.Port != "main" {
+			t.Fatalf("item %#v not index-aligned with its source %#v", item, src)
+		}
+		seenSources[src] = true
+	}
+	if !seenSources[ItemSource{Node: "left", Port: "main"}] || !seenSources[ItemSource{Node: "right", Port: "main"}] {
+		t.Fatalf("expected sources from both left and right, got %#v", sink.InputSource)
+	}
+}
+
+func TestRunRecordsOutputByPortWithoutChangingOutput(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("split", funcExecutor{desc: NodeDescription{Type: "split"}, execute: func(_ context.Context, _ *Runtime, _ []Item, _ map[string]any) (Output, error) {
+		return Output{Ports: map[string][]Item{
+			"true":  {{"branch": "true"}},
+			"false": {{"branch": "false"}},
+		}}, nil
+	}})
+	def := Definition{Nodes: []Node{{ID: "split", Type: "split"}}}
+	result, err := Run(context.Background(), def, reg, nil, nil, Options{})
+	if err != nil || !result.Success {
+		t.Fatalf("run: err=%v success=%v", err, result.Success)
+	}
+	split := result.Results["split"]
+	if len(split.OutputByPort["true"]) != 1 || split.OutputByPort["true"][0]["branch"] != "true" {
+		t.Fatalf("expected OutputByPort[true] to have the true branch item, got %#v", split.OutputByPort)
+	}
+	if len(split.OutputByPort["false"]) != 1 || split.OutputByPort["false"][0]["branch"] != "false" {
+		t.Fatalf("expected OutputByPort[false] to have the false branch item, got %#v", split.OutputByPort)
+	}
+	// Output still collapses to "every port concatenated" exactly as before -
+	// no behavior change for existing consumers of this field.
+	if len(split.Output) != 2 {
+		t.Fatalf("expected Output to still collapse both ports (2 items), got %#v", split.Output)
+	}
+}
+
+func TestRunRecordsInputOnValidationFailure(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("picky", funcExecutor{
+		desc:     NodeDescription{Type: "picky"},
+		validate: func(map[string]any) error { return errors.New("nope") },
+	})
+	def := Definition{Nodes: []Node{{ID: "picky", Type: "picky"}}}
+	result, err := Run(context.Background(), def, reg, nil, []Item{{"x": 1}}, Options{})
+	if err != nil {
+		t.Fatalf("run: %v", err)
+	}
+	picky := result.Results["picky"]
+	if picky.Success {
+		t.Fatal("expected validation failure")
+	}
+	if len(picky.Input) != 1 || picky.Input[0]["x"] != 1 {
+		t.Fatalf("expected Input to still be recorded on a validation failure, got %#v", picky.Input)
+	}
+	if len(picky.InputSource) != 1 || picky.InputSource[0] != (ItemSource{}) {
+		t.Fatalf("expected InputSource to still be recorded on a validation failure, got %#v", picky.InputSource)
+	}
+}
