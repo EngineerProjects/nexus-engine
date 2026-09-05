@@ -43,6 +43,22 @@ func TestWebhookTriggerValidateParametersRejectsUnknownMethod(t *testing.T) {
 	}
 }
 
+func TestWebhookTriggerValidateParametersAcceptsKnownResponseModes(t *testing.T) {
+	n := NewWebhookTrigger()
+	for _, mode := range []string{"", WebhookResponseModeImmediate, WebhookResponseModeWhenFinished} {
+		if err := n.ValidateParameters(map[string]any{"responseMode": mode}); err != nil {
+			t.Fatalf("expected responseMode %q to pass, got %v", mode, err)
+		}
+	}
+}
+
+func TestWebhookTriggerValidateParametersRejectsUnknownResponseMode(t *testing.T) {
+	n := NewWebhookTrigger()
+	if err := n.ValidateParameters(map[string]any{"responseMode": "streaming"}); err == nil {
+		t.Fatal("expected error for an unsupported responseMode")
+	}
+}
+
 func TestWebhookTriggerExecutePassesInputThrough(t *testing.T) {
 	n := NewWebhookTrigger()
 	out, err := n.Execute(context.Background(), nil, []dataflow.Item{{"x": 1}}, map[string]any{"method": "POST"})
