@@ -139,9 +139,19 @@ func Run(ctx context.Context, def Definition, registry *Registry, rt *Runtime, i
 	result := Result{Name: def.Name, Success: true, StartedAt: started, Results: map[string]NodeResult{}}
 
 	pendingInputs := map[string][]Item{}
+	// pendingSources tracks, index-aligned with pendingInputs, where each
+	// pending item came from - a zero-value ItemSource for the run's own
+	// seed input, {Node, Port} of whichever upstream node produced it
+	// otherwise. Written under the same mu.Lock() as pendingInputs below, so
+	// the two always stay index-aligned even with multiple producer
+	// goroutines writing to the same target.
+	pendingSources := map[string][]ItemSource{}
 	for id, p := range preds {
 		if len(p) == 0 {
 			pendingInputs[id] = append(pendingInputs[id], input...)
+			for range input {
+				pendingSources[id] = append(pendingSources[id], ItemSource{})
+			}
 		}
 	}
 
@@ -175,14 +185,15 @@ func Run(ctx context.Context, def Definition, registry *Registry, rt *Runtime, i
 				continue
 			}
 			nodeInput := pendingInputs[id]
+			nodeSources := pendingSources[id]
 			mu.Unlock()
 
 			sem <- struct{}{}
 			wg.Add(1)
-			go func(node Node, nodeInput []Item) {
+			go func(node Node, nodeInput []Item, nodeSources []ItemSource) {
 				defer wg.Done()
 				defer func() { <-sem }()
-				nodeResult, output := executeNode(ctx, registry, rt, node, nodeInput)
+				nodeResult, output := executeNode(ctx, registry, rt, node, nodeInput, nodeSources)
 
 				mu.Lock()
 				result.Results[node.ID] = nodeResult
@@ -194,11 +205,14 @@ func Run(ctx context.Context, def Definition, registry *Registry, rt *Runtime, i
 						items := output.Ports[port]
 						for _, target := range targets {
 							pendingInputs[target] = append(pendingInputs[target], items...)
+							for range items {
+								pendingSources[target] = append(pendingSources[target], ItemSource{Node: node.ID, Port: port})
+							}
 						}
 					}
 				}
 				mu.Unlock()
-			}(node, nodeInput)
+			}(node, nodeInput, nodeSources)
 		}
 		wg.Wait()
 	}
@@ -210,21 +224,23 @@ func Run(ctx context.Context, def Definition, registry *Registry, rt *Runtime, i
 
 // executeNode runs one node and returns both its recorded NodeResult (for
 // Result.Results — reports the "main" port only, or every port concatenated
-// if the node used no "main" port at all, e.g. a pure if/switch) and its raw
-// Output (every port, used by Run's caller to route to Connections targets).
-func executeNode(ctx context.Context, registry *Registry, rt *Runtime, node Node, input []Item) (NodeResult, Output) {
+// if the node used no "main" port at all, e.g. a pure if/switch, in Output;
+// OutputByPort keeps the real per-port breakdown) and its raw Output (every
+// port, used by Run's caller to route to Connections targets).
+func executeNode(ctx context.Context, registry *Registry, rt *Runtime, node Node, input []Item, sources []ItemSource) (NodeResult, Output) {
 	start := time.Now()
 	executor, err := registry.Get(node.Type)
 	if err != nil {
-		return instantFailure(node, err), Output{}
+		return instantFailure(node, err, input, sources), Output{}
 	}
 	if err := executor.ValidateParameters(node.Parameters); err != nil {
-		return instantFailure(node, fmt.Errorf("invalid parameters for node %q: %w", node.ID, err)), Output{}
+		return instantFailure(node, fmt.Errorf("invalid parameters for node %q: %w", node.ID, err), input, sources), Output{}
 	}
 	output, err := executor.Execute(ctx, rt, input, node.Parameters)
 	end := time.Now()
 	if err != nil {
-		return NodeResult{ID: node.ID, Type: node.Type, Success: false, Error: err.Error(), StartedAt: start, EndedAt: end, Duration: end.Sub(start)}, Output{}
+		return NodeResult{ID: node.ID, Type: node.Type, Success: false, Input: input, InputSource: sources,
+			Error: err.Error(), StartedAt: start, EndedAt: end, Duration: end.Sub(start)}, Output{}
 	}
 	reported := output.Ports[mainPort]
 	if reported == nil {
@@ -232,10 +248,12 @@ func executeNode(ctx context.Context, registry *Registry, rt *Runtime, node Node
 			reported = append(reported, items...)
 		}
 	}
-	return NodeResult{ID: node.ID, Type: node.Type, Success: true, Output: reported, StartedAt: start, EndedAt: end, Duration: end.Sub(start)}, output
+	return NodeResult{ID: node.ID, Type: node.Type, Success: true, Input: input, InputSource: sources,
+		Output: reported, OutputByPort: output.Ports, StartedAt: start, EndedAt: end, Duration: end.Sub(start)}, output
 }
 
-func instantFailure(node Node, err error) NodeResult {
+func instantFailure(node Node, err error, input []Item, sources []ItemSource) NodeResult {
 	now := time.Now()
-	return NodeResult{ID: node.ID, Type: node.Type, Success: false, Error: err.Error(), StartedAt: now, EndedAt: now}
+	return NodeResult{ID: node.ID, Type: node.Type, Success: false, Input: input, InputSource: sources,
+		Error: err.Error(), StartedAt: now, EndedAt: now}
 }

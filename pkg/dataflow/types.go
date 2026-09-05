@@ -46,17 +46,36 @@ func Main(items []Item) Output {
 	return Output{Ports: map[string][]Item{"main": items}}
 }
 
+// ItemSource identifies where one received input item came from - which
+// upstream node produced it and on which output port. A zero value
+// (Node == "") means the item came from this run's own seed input (Run's
+// `input` parameter), not from another node.
+type ItemSource struct {
+	Node string `json:"node,omitempty"`
+	Port string `json:"port,omitempty"`
+}
+
 // NodeResult is the recorded outcome of one node's execution within a Run.
 type NodeResult struct {
-	ID        string        `json:"id"`
-	Type      string        `json:"type"`
-	Success   bool          `json:"success"`
-	Skipped   bool          `json:"skipped,omitempty"`
-	Output    []Item        `json:"output,omitempty"`
-	Error     string        `json:"error,omitempty"`
-	StartedAt time.Time     `json:"started_at"`
-	EndedAt   time.Time     `json:"ended_at"`
-	Duration  time.Duration `json:"duration"`
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Success bool   `json:"success"`
+	Skipped bool   `json:"skipped,omitempty"`
+	// Input/InputSource are exactly what this node received and, index for
+	// index, where each item came from - populated by Run's own scheduling
+	// loop (see engine.go), never by the node's own Execute, so every node
+	// type gets this for free with no interface change.
+	Input       []Item       `json:"input,omitempty"`
+	InputSource []ItemSource `json:"input_source,omitempty"`
+	// Output is the same single-port view every existing consumer already
+	// reads (unchanged) - OutputByPort is the real per-port breakdown Output
+	// collapses away (see executeNode).
+	Output       []Item            `json:"output,omitempty"`
+	OutputByPort map[string][]Item `json:"output_by_port,omitempty"`
+	Error        string            `json:"error,omitempty"`
+	StartedAt    time.Time         `json:"started_at"`
+	EndedAt      time.Time         `json:"ended_at"`
+	Duration     time.Duration     `json:"duration"`
 }
 
 // Result is the outcome of a full graph Run.
