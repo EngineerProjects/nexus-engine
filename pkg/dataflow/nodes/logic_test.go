@@ -70,6 +70,34 @@ func TestSwitchFallsBackToDefaultPort(t *testing.T) {
 	}
 }
 
+func TestFilterExpressionSeesItemIndexNowAndNode(t *testing.T) {
+	n := NewFilter(expr.NewPool(2))
+	rt := &dataflow.Runtime{}
+	out, err := n.Execute(context.Background(), rt, []dataflow.Item{{"n": 1}, {"n": 2}}, map[string]any{
+		"expression": "$itemIndex === 1 && typeof $now !== 'undefined' && typeof $today !== 'undefined' && typeof $node === 'function'",
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	kept := out.Ports["main"]
+	if len(kept) != 1 || kept[0]["n"] != 2 {
+		t.Fatalf("expected only the item at index 1 to match, got %#v", kept)
+	}
+}
+
+func TestFilterExpressionNodeBindingIsNilSafeWithoutRuntime(t *testing.T) {
+	n := NewFilter(expr.NewPool(2))
+	out, err := n.Execute(context.Background(), nil, []dataflow.Item{{"n": 1}}, map[string]any{
+		"expression": "typeof $node === 'function' && $node('missing').json === null",
+	})
+	if err != nil {
+		t.Fatalf("execute with nil Runtime: %v", err)
+	}
+	if len(out.Ports["main"]) != 1 {
+		t.Fatalf("expected $node to be a working nil-safe accessor with no Runtime, got %#v", out.Ports)
+	}
+}
+
 func TestSwitchValidateParametersRequiresKnownCases(t *testing.T) {
 	n := NewSwitch(expr.NewPool(2))
 	err := n.ValidateParameters(map[string]any{

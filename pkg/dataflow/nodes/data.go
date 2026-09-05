@@ -28,25 +28,38 @@ func (n *Set) ValidateParameters(map[string]any) error { return nil }
 func (n *Set) Execute(ctx context.Context, rt *dataflow.Runtime, input []dataflow.Item, params map[string]any) (dataflow.Output, error) {
 	fields, _ := params["fields"].(map[string]any)
 	out := make([]dataflow.Item, 0, len(input))
-	for _, item := range input {
+	for i, item := range input {
 		next := make(dataflow.Item, len(item)+len(fields))
 		for k, v := range item {
 			next[k] = v
 		}
 		for k, v := range fields {
-			if expression, ok := v.(string); ok && strings.HasPrefix(expression, "=") {
-				value, err := n.pool.Eval(ctx, strings.TrimPrefix(expression, "="), map[string]any{"$json": map[string]any(item)})
-				if err != nil {
-					return dataflow.Output{}, err
-				}
-				next[k] = value
-				continue
+			value, err := n.resolve(ctx, rt, v, item, i)
+			if err != nil {
+				return dataflow.Output{}, err
 			}
-			next[k] = v
+			next[k] = value
 		}
 		out = append(out, next)
 	}
 	return dataflow.Main(out), nil
+}
+
+// resolve is dataflow.ResolveValue when the caller has wired Runtime.Expr,
+// falling back to this node's own pool (exactly the pre-Tier-2.1 behavior:
+// $json-bound only) when it hasn't - a caller that constructs its own
+// Runtime without setting Expr (e.g. a service that hasn't adopted the new
+// field yet) must not see its existing "=" expressions in "set" silently
+// stop evaluating.
+func (n *Set) resolve(ctx context.Context, rt *dataflow.Runtime, raw any, item dataflow.Item, itemIndex int) (any, error) {
+	s, ok := raw.(string)
+	if !ok || !strings.HasPrefix(s, "=") {
+		return raw, nil
+	}
+	if rt != nil && rt.Expr != nil {
+		return dataflow.ResolveValue(ctx, rt, raw, item, itemIndex)
+	}
+	return n.pool.Eval(ctx, strings.TrimPrefix(s, "="), map[string]any{"$json": map[string]any(item)})
 }
 
 // Merge is the "merge" node type. The engine already concatenates items

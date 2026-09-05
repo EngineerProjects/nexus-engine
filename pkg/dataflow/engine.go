@@ -201,6 +201,11 @@ func Run(ctx context.Context, def Definition, registry *Registry, rt *Runtime, i
 				if !nodeResult.Success {
 					result.Success = false
 				} else {
+					// Recorded here, not in executeNode - $node('Name')
+					// (see ResolveValue) must only ever see a node that has
+					// *finished successfully*, matching n8n's own execution-
+					// order requirement on $('Name').
+					rt.recordNodeOutput(node.ID, nodeResult.Output)
 					for port, targets := range node.Connections {
 						items := output.Ports[port]
 						for _, target := range targets {

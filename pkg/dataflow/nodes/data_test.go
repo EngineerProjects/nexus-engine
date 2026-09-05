@@ -31,6 +31,31 @@ func TestSetAddsLiteralAndExpressionFields(t *testing.T) {
 	}
 }
 
+func TestSetPrefersRuntimeExprAndOffersNodeAndNowBindings(t *testing.T) {
+	// Registered with its own pool (as Register always does), but called
+	// with a Runtime whose Expr is a *different* pool - the Runtime-level
+	// evaluator must win, and it must additionally offer $node/$now/$today,
+	// which the node's own pre-Tier-2.1 fallback path does not.
+	n := NewSet(expr.NewPool(2))
+	rt := &dataflow.Runtime{Expr: expr.NewPool(2)}
+	out, err := n.Execute(context.Background(), rt, []dataflow.Item{{"n": 3}}, map[string]any{
+		"fields": map[string]any{
+			"hasNow":  "=typeof $now !== 'undefined'",
+			"hasNode": "=typeof $node === 'function'",
+		},
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	item := out.Ports["main"][0]
+	if item["hasNow"] != true {
+		t.Fatalf("expected $now to be bound via Runtime.Expr, got %#v", item["hasNow"])
+	}
+	if item["hasNode"] != true {
+		t.Fatalf("expected $node to be bound via Runtime.Expr, got %#v", item["hasNode"])
+	}
+}
+
 func toFloat(t *testing.T, v any) float64 {
 	t.Helper()
 	switch n := v.(type) {

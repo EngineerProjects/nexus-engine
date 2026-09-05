@@ -111,6 +111,21 @@ func StringParam(params map[string]any, name, fallback string) string {
 	return fallback
 }
 
+// AsString coerces a resolved parameter value (a literal, or an
+// expression's evaluation result) to a string: a string passes through
+// unchanged, nil becomes "", anything else (a number or bool an expression
+// evaluated to) is formatted with fmt.Sprint - the same loose coercion JS
+// itself would apply putting a non-string into a string context.
+func AsString(v any) string {
+	if v == nil {
+		return ""
+	}
+	if s, ok := v.(string); ok {
+		return s
+	}
+	return fmt.Sprint(v)
+}
+
 func IntParam(params map[string]any, name string, fallback int) int {
 	switch v := params[name].(type) {
 	case int:
