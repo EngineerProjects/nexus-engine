@@ -6,6 +6,8 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/KPO-Tech/seshat/pkg/dataflow/expr"
 )
 
 // funcExecutor lets tests define a node's behavior as a plain function,
@@ -162,6 +164,16 @@ func TestValidateDetectsUnknownConnectionTarget(t *testing.T) {
 	}
 }
 
+func TestValidateDetectsUnknownPinnedDataNode(t *testing.T) {
+	def := Definition{
+		Nodes:      []Node{{ID: "a", Type: "x"}},
+		PinnedData: map[string][]Item{"missing": {{"x": 1}}},
+	}
+	if err := Validate(def); err == nil {
+		t.Fatal("expected error for pinnedData referencing an unknown node")
+	}
+}
+
 func TestRunFailsOnUnregisteredNodeType(t *testing.T) {
 	def := Definition{Nodes: []Node{{ID: "a", Type: "does-not-exist"}}}
 	result, err := Run(context.Background(), def, NewRegistry(), nil, nil, Options{})
@@ -309,5 +321,99 @@ func TestRunRecordsInputOnValidationFailure(t *testing.T) {
 	}
 	if len(picky.InputSource) != 1 || picky.InputSource[0] != (ItemSource{}) {
 		t.Fatalf("expected InputSource to still be recorded on a validation failure, got %#v", picky.InputSource)
+	}
+}
+
+func TestRunUsesPinnedDataInsteadOfExecutingTheRealNode(t *testing.T) {
+	reg := NewRegistry()
+	called := false
+	reg.Register("a", funcExecutor{desc: NodeDescription{Type: "a"}, execute: func(_ context.Context, _ *Runtime, _ []Item, _ map[string]any) (Output, error) {
+		called = true
+		return Output{}, errors.New("the real node must never run when pinned")
+	}})
+	def := Definition{
+		Nodes:      []Node{{ID: "a", Type: "a"}},
+		PinnedData: map[string][]Item{"a": {{"pinned": true}}},
+	}
+	result, err := Run(context.Background(), def, reg, nil, nil, Options{})
+	if err != nil || !result.Success {
+		t.Fatalf("run: err=%v success=%v results=%#v", err, result.Success, result.Results)
+	}
+	if called {
+		t.Fatal("expected the real executor to never run for a pinned node")
+	}
+	a := result.Results["a"]
+	if !a.Pinned {
+		t.Fatal("expected NodeResult.Pinned to be true")
+	}
+	if len(a.Output) != 1 || a.Output[0]["pinned"] != true {
+		t.Fatalf("expected the pinned items as output, got %#v", a.Output)
+	}
+}
+
+func TestRunPinnedNodeSkipsValidateParametersAndRegistryLookup(t *testing.T) {
+	// No node type "does-not-exist" registered at all - a pinned node must
+	// not even reach the registry lookup, let alone ValidateParameters.
+	def := Definition{
+		Nodes:      []Node{{ID: "a", Type: "does-not-exist"}},
+		PinnedData: map[string][]Item{"a": {{"x": 1}}},
+	}
+	result, err := Run(context.Background(), def, NewRegistry(), nil, nil, Options{})
+	if err != nil || !result.Success {
+		t.Fatalf("run: err=%v success=%v results=%#v", err, result.Success, result.Results)
+	}
+	if !result.Results["a"].Pinned {
+		t.Fatal("expected the unregistered-but-pinned node to still succeed as pinned")
+	}
+}
+
+func TestRunPropagatesPinnedOutputToDownstreamNode(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("b", passthrough("b"))
+	def := Definition{
+		Nodes: []Node{
+			{ID: "a", Type: "a", Connections: map[string][]string{"main": {"b"}}},
+			{ID: "b", Type: "b"},
+		},
+		PinnedData: map[string][]Item{"a": {{"from": "pin"}}},
+	}
+	result, err := Run(context.Background(), def, reg, nil, nil, Options{})
+	if err != nil || !result.Success {
+		t.Fatalf("run: err=%v success=%v results=%#v", err, result.Success, result.Results)
+	}
+	b := result.Results["b"]
+	if len(b.Input) != 1 || b.Input[0]["from"] != "pin" {
+		t.Fatalf("expected b to receive a's pinned output, got %#v", b.Input)
+	}
+	if len(b.InputSource) != 1 || b.InputSource[0] != (ItemSource{Node: "a", Port: "main"}) {
+		t.Fatalf("expected b's InputSource to point at a's main port like a real run, got %#v", b.InputSource)
+	}
+}
+
+func TestNodeAccessorSeesPinnedOutputOnceThatNodeCompletes(t *testing.T) {
+	reg := NewRegistry()
+	reg.Register("b", funcExecutor{desc: NodeDescription{Type: "b"}, execute: func(ctx context.Context, rt *Runtime, _ []Item, params map[string]any) (Output, error) {
+		val, err := ResolveParam(ctx, rt, params, "url", Item{}, 0)
+		if err != nil {
+			return Output{}, err
+		}
+		return Main([]Item{{"url": val}}), nil
+	}})
+
+	def := Definition{
+		Nodes: []Node{
+			{ID: "a", Type: "a", Connections: map[string][]string{"main": {"b"}}},
+			{ID: "b", Type: "b", Parameters: map[string]any{"url": "=$node('a').json.id"}},
+		},
+		PinnedData: map[string][]Item{"a": {{"id": "pinned-id"}}},
+	}
+	rt := &Runtime{Expr: expr.NewPool(1)}
+	result, err := Run(context.Background(), def, reg, rt, nil, Options{})
+	if err != nil || !result.Success {
+		t.Fatalf("run: err=%v success=%v results=%#v", err, result.Success, result.Results)
+	}
+	b := result.Results["b"]
+	if len(b.Output) != 1 || b.Output[0]["url"] != "pinned-id" {
+		t.Fatalf("expected $node('a') to see a's pinned output, got %#v", b.Output)
 	}
 }

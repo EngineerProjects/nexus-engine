@@ -41,6 +41,11 @@ func Validate(def Definition) error {
 			}
 		}
 	}
+	for nodeID := range def.PinnedData {
+		if !ids[nodeID] {
+			return fmt.Errorf("dataflow: pinnedData references unknown node %q", nodeID)
+		}
+	}
 	if _, err := topologicalLevels(def); err != nil {
 		return err
 	}
@@ -193,7 +198,7 @@ func Run(ctx context.Context, def Definition, registry *Registry, rt *Runtime, i
 			go func(node Node, nodeInput []Item, nodeSources []ItemSource) {
 				defer wg.Done()
 				defer func() { <-sem }()
-				nodeResult, output := executeNode(ctx, registry, rt, node, nodeInput, nodeSources)
+				nodeResult, output := executeNode(ctx, registry, rt, node, nodeInput, nodeSources, def.PinnedData)
 
 				mu.Lock()
 				result.Results[node.ID] = nodeResult
@@ -232,8 +237,19 @@ func Run(ctx context.Context, def Definition, registry *Registry, rt *Runtime, i
 // if the node used no "main" port at all, e.g. a pure if/switch, in Output;
 // OutputByPort keeps the real per-port breakdown) and its raw Output (every
 // port, used by Run's caller to route to Connections targets).
-func executeNode(ctx context.Context, registry *Registry, rt *Runtime, node Node, input []Item, sources []ItemSource) (NodeResult, Output) {
+func executeNode(ctx context.Context, registry *Registry, rt *Runtime, node Node, input []Item, sources []ItemSource, pinnedData map[string][]Item) (NodeResult, Output) {
 	start := time.Now()
+	// A pinned node never touches its real executor at all - not even the
+	// registry lookup - so a graph can be tested with a node whose real
+	// config is incomplete, or whose type isn't implemented yet. Its
+	// pinned items become its "main"-port output exactly as if a real
+	// Execute had returned them.
+	if items, ok := pinnedData[node.ID]; ok {
+		now := time.Now()
+		output := Main(items)
+		return NodeResult{ID: node.ID, Type: node.Type, Success: true, Pinned: true, Input: input, InputSource: sources,
+			Output: items, OutputByPort: output.Ports, StartedAt: start, EndedAt: now, Duration: now.Sub(start)}, output
+	}
 	executor, err := registry.Get(node.Type)
 	if err != nil {
 		return instantFailure(node, err, input, sources), Output{}
