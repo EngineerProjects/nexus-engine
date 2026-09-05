@@ -22,6 +22,11 @@ func NewWebhookTrigger() WebhookTrigger { return WebhookTrigger{} }
 
 var webhookTriggerMethods = []string{"GET", "POST", "PUT", "PATCH", "DELETE"}
 
+const (
+	WebhookResponseModeImmediate    = "immediate"
+	WebhookResponseModeWhenFinished = "whenFinished"
+)
+
 func (WebhookTrigger) Description() dataflow.NodeDescription {
 	options := make([]dataflow.NodePropertyOption, len(webhookTriggerMethods))
 	for i, m := range webhookTriggerMethods {
@@ -36,20 +41,38 @@ func (WebhookTrigger) Description() dataflow.NodeDescription {
 			{Name: "method", DisplayName: "HTTP Method", Type: dataflow.PropOptions, Required: true, Default: "POST",
 				Description: "Only requests using this method will trigger a run; others get 405.",
 				Options:     options},
+			{Name: "responseMode", DisplayName: "Response", Type: dataflow.PropOptions, Required: true, Default: WebhookResponseModeImmediate,
+				Description: "Immediate: answer 202 right away, run in the background. When finished: hold the " +
+					"HTTP response until the run completes (or ~55s passes) and return its result - the " +
+					"graph's useful output for this mode is in the response's node_trace, not output_text " +
+					"(a graph run never calls session.SubmitMessage). Cloud execution target only.",
+				Options: []dataflow.NodePropertyOption{
+					{Label: "Immediate", Value: WebhookResponseModeImmediate},
+					{Label: "When finished", Value: WebhookResponseModeWhenFinished},
+				}},
 		}}
 }
 
 func (WebhookTrigger) ValidateParameters(params map[string]any) error {
 	method := dataflow.StringParam(params, "method", "")
-	if method == "" {
-		return nil
-	}
-	for _, m := range webhookTriggerMethods {
-		if strings.EqualFold(method, m) {
-			return nil
+	if method != "" {
+		valid := false
+		for _, m := range webhookTriggerMethods {
+			if strings.EqualFold(method, m) {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return errors.New(`method must be one of "GET", "POST", "PUT", "PATCH", "DELETE"`)
 		}
 	}
-	return errors.New(`method must be one of "GET", "POST", "PUT", "PATCH", "DELETE"`)
+
+	mode := dataflow.StringParam(params, "responseMode", "")
+	if mode != "" && mode != WebhookResponseModeImmediate && mode != WebhookResponseModeWhenFinished {
+		return errors.New(`responseMode must be one of "immediate", "whenFinished"`)
+	}
+	return nil
 }
 
 func (WebhookTrigger) Execute(_ context.Context, _ *dataflow.Runtime, input []dataflow.Item, _ map[string]any) (dataflow.Output, error) {
