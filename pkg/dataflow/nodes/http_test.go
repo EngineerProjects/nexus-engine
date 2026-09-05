@@ -5,6 +5,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/KPO-Tech/seshat/pkg/dataflow"
+	"github.com/KPO-Tech/seshat/pkg/dataflow/expr"
 )
 
 func TestValidateURLForSSRFBlocksPrivateAndMetadataHosts(t *testing.T) {
@@ -72,6 +75,59 @@ func TestHTTPRequestExecuteParsesJSONResponse(t *testing.T) {
 	parsed, ok := items[0]["json"].(map[string]any)
 	if !ok || parsed["ok"] != true {
 		t.Fatalf("expected parsed json body, got %#v", items[0]["json"])
+	}
+}
+
+func TestHTTPRequestExecuteResolvesExpressionsInURLBodyAndHeaders(t *testing.T) {
+	var gotPath, gotBody, gotHeader string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotHeader = r.Header.Get("X-Item-Id")
+		body := make([]byte, 64)
+		n, _ := r.Body.Read(body)
+		gotBody = string(body[:n])
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	node := NewHTTPRequest()
+	node.checkSSRF = func(string) error { return nil }
+	rt := &dataflow.Runtime{Expr: expr.NewPool(1)}
+	input := []dataflow.Item{{"id": "42"}}
+
+	_, err := node.Execute(context.Background(), rt, input, map[string]any{
+		"url":     "=" + `"` + srv.URL + `/items/" + $json.id`,
+		"method":  "POST",
+		"body":    "=`id=${$json.id}`",
+		"headers": map[string]any{"X-Item-Id": "=$json.id", "X-Literal": "unchanged"},
+	})
+	if err != nil {
+		t.Fatalf("execute: %v", err)
+	}
+	if gotPath != "/items/42" {
+		t.Fatalf("expected the '=' URL expression to resolve against $json, got path %q", gotPath)
+	}
+	if gotBody != "id=42" {
+		t.Fatalf("expected the '=' body expression to resolve against $json, got %q", gotBody)
+	}
+	if gotHeader != "42" {
+		t.Fatalf("expected the '=' header value to resolve against $json, got %q", gotHeader)
+	}
+}
+
+func TestHTTPRequestExecuteLeavesLiteralParamsUnresolvedWithNoRuntimeExpr(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer srv.Close()
+
+	node := NewHTTPRequest()
+	node.checkSSRF = func(string) error { return nil }
+	// No Runtime at all (nil) - must behave exactly as before Tier 2.1 for a
+	// literal URL, not error out just because expressions aren't wired up.
+	_, err := node.Execute(context.Background(), nil, nil, map[string]any{"url": srv.URL})
+	if err != nil {
+		t.Fatalf("expected a literal url to work with a nil Runtime, got %v", err)
 	}
 }
 
